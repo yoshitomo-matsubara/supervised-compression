@@ -6,8 +6,8 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-torch = ">=1.6.0"
-torchvision = ">=0.7.0"
+torch = ">=1.7.1"
+torchvision = ">=0.8.2"
 torchdistill = "*"
 compressai = {editable = true, git = "https://github.com/InterDigitalInc/CompressAI", ref = "ab6a7af51d10f344026e68f89f3f91d2f0c9da56"}
 
