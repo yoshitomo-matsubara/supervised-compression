@@ -8,16 +8,19 @@ from torch import distributed as dist
 from torch.backends import cudnn
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
-
 from torchdistill.common import file_util, yaml_util, module_util
 from torchdistill.common.constant import def_logger
 from torchdistill.common.main_util import is_main_process, init_distributed_mode, load_ckpt, save_ckpt
 from torchdistill.core.distillation import get_distillation_box
+from torchdistill.core.training import get_training_box
 from torchdistill.datasets import util
 from torchdistill.eval.classification import compute_accuracy
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
-from torchdistill.models import MODEL_DICT
 from torchdistill.models.official import get_image_classification_model
+from torchdistill.models.registry import get_model
+
+from compression.registry import get_compression_model
+from custom.classifier import get_custom_model
 
 logger = def_logger.getChild(__name__)
 
@@ -39,14 +42,27 @@ def get_argparser():
     return parser
 
 
-def get_model(model_config, device, distributed, sync_bn):
-    model = get_image_classification_model(model_config, distributed, sync_bn)
-    if model is None:
-        model = MODEL_DICT[model_config['name']](**model_config['params'])
+def load_model(model_config, device, distributed, sync_bn):
+    # Define compressor
+    compressor_config = model_config['compressor']
+    compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
+    compressor_ckpt_file_path = compressor_config['ckpt']
+    if os.path.isfile(compressor_ckpt_file_path):
+        logger.info('Loading compressor parameters')
+        state_dict = torch.load(compressor_ckpt_file_path)
+        compressor.load_state_dict(state_dict)
 
-    ckpt_file_path = model_config['ckpt']
-    load_ckpt(ckpt_file_path, model=model, strict=True)
-    return model.to(device)
+    # Define classifier
+    classifier_config = model_config['classifier']
+    classifier = get_image_classification_model(classifier_config, distributed, sync_bn)
+    if classifier is None:
+        repo_or_dir = classifier_config.get('repo_or_dir', None)
+        classifier = get_model(classifier_config['name'], repo_or_dir, **classifier_config['params'])
+
+    classifier_ckpt_file_path = classifier_config['ckpt']
+    load_ckpt(classifier_ckpt_file_path, model=classifier, strict=True)
+    custom_model = get_custom_model(model_config['name'], compressor, classifier, **model_config['params'])
+    return custom_model.to(device)
 
 
 def distill_one_epoch(distillation_box, device, epoch, log_freq):
@@ -100,26 +116,26 @@ def evaluate(model, data_loader, device, device_ids, distributed, log_freq=1000,
     return metric_logger.acc1.global_avg
 
 
-def distill(teacher_model, student_model, dataset_dict, device, device_ids, distributed, config, args):
-    logger.info('Start distillation')
+def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args):
+    logger.info('Start training')
     train_config = config['train']
     lr_factor = args.world_size if distributed and args.adjust_lr else 1
-    distillation_box =\
-        get_distillation_box(teacher_model, student_model, dataset_dict,
-                             train_config, device, device_ids, distributed, lr_factor)
-    ckpt_file_path = config['models']['student_model']['ckpt']
+    training_box = get_training_box(student_model, dataset_dict, train_config,
+                                    device, device_ids, distributed, lr_factor) if teacher_model is None \
+        else get_distillation_box(teacher_model, student_model, dataset_dict, train_config,
+                                  device, device_ids, distributed, lr_factor)
     best_val_top1_accuracy = 0.0
-    optimizer, lr_scheduler = distillation_box.optimizer, distillation_box.lr_scheduler
+    optimizer, lr_scheduler = training_box.optimizer, training_box.lr_scheduler
     if file_util.check_if_exists(ckpt_file_path):
         best_val_top1_accuracy, _, _ = load_ckpt(ckpt_file_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
 
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
     start_time = time.time()
-    for epoch in range(args.start_epoch, distillation_box.num_epochs):
-        distillation_box.pre_process(epoch=epoch)
-        distill_one_epoch(distillation_box, device, epoch, log_freq)
-        val_top1_accuracy = evaluate(student_model, distillation_box.val_data_loader, device, device_ids, distributed,
+    for epoch in range(args.start_epoch, training_box.num_epochs):
+        training_box.pre_process(epoch=epoch)
+        distill_one_epoch(training_box, device, epoch, log_freq)
+        val_top1_accuracy = evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
                                      log_freq=log_freq, header='Validation:')
         if val_top1_accuracy > best_val_top1_accuracy and is_main_process():
             logger.info('Updating ckpt (Best top1 accuracy: '
@@ -127,7 +143,7 @@ def distill(teacher_model, student_model, dataset_dict, device, device_ids, dist
             best_val_top1_accuracy = val_top1_accuracy
             save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
                       best_val_top1_accuracy, config, args, ckpt_file_path)
-        distillation_box.post_process()
+        training_box.post_process()
 
     if distributed:
         dist.barrier()
@@ -135,7 +151,7 @@ def distill(teacher_model, student_model, dataset_dict, device, device_ids, dist
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
-    distillation_box.clean_modules()
+    training_box.clean_modules()
 
 
 def main(args):
@@ -150,12 +166,15 @@ def main(args):
     device = torch.device(args.device)
     dataset_dict = util.get_all_dataset(config['datasets'])
     models_config = config['models']
-    teacher_model_config = models_config['teacher_model']
-    teacher_model = get_model(teacher_model_config, device, distributed, False)
-    student_model_config = models_config['student_model']
-    student_model = get_model(student_model_config, device, distributed, args.sync_bn)
+    teacher_model_config = models_config.get('teacher_model', None)
+    teacher_model =\
+        load_model(teacher_model_config, device, distributed, False) if teacher_model_config is not None else None
+    student_model_config =\
+        models_config['student_model'] if 'student_model' in models_config else models_config['model']
+    student_model = load_model(student_model_config, device, distributed, args.sync_bn)
     if not args.test_only:
-        distill(teacher_model, student_model, dataset_dict, device, device_ids, distributed, config, args)
+        ckpt_file_path = student_model_config['ckpt']
+        train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
         student_model_without_ddp =\
             student_model.module if module_util.check_if_wrapped(student_model) else student_model
         load_ckpt(student_model_config['ckpt'], model=student_model_without_ddp, strict=True)
@@ -164,7 +183,7 @@ def main(args):
     test_data_loader_config = test_config['test_data_loader']
     test_data_loader = util.build_data_loader(dataset_dict[test_data_loader_config['dataset_id']],
                                               test_data_loader_config, distributed)
-    if not args.student_only:
+    if not args.student_only and teacher_model is not None:
         evaluate(teacher_model, test_data_loader, device, device_ids, distributed,
                  title='[Teacher: {}]'.format(teacher_model_config['name']))
     evaluate(student_model, test_data_loader, device, device_ids, distributed,
