@@ -3,6 +3,7 @@ import datetime
 import os
 import time
 
+import numpy as np
 import torch
 from torch import distributed as dist
 from torch.backends import cudnn
@@ -52,6 +53,7 @@ def load_model(model_config, device, distributed, sync_bn):
         state_dict = torch.load(compressor_ckpt_file_path)
         compressor.load_state_dict(state_dict)
 
+    compressor.update()
     # Define classifier
     classifier_config = model_config['classifier']
     classifier = get_image_classification_model(classifier_config, distributed, sync_bn)
@@ -65,7 +67,7 @@ def load_model(model_config, device, distributed, sync_bn):
     return custom_model.to(device)
 
 
-def distill_one_epoch(distillation_box, device, epoch, log_freq):
+def train_one_epoch(distillation_box, device, epoch, log_freq):
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -134,7 +136,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     start_time = time.time()
     for epoch in range(args.start_epoch, training_box.num_epochs):
         training_box.pre_process(epoch=epoch)
-        distill_one_epoch(training_box, device, epoch, log_freq)
+        train_one_epoch(training_box, device, epoch, log_freq)
         val_top1_accuracy = evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
                                      log_freq=log_freq, header='Validation:')
         if val_top1_accuracy > best_val_top1_accuracy and is_main_process():
@@ -152,6 +154,14 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
     training_box.clean_modules()
+
+
+def analyze_bottleneck_size(model):
+    if len(model.file_size_list) == 0:
+        return
+
+    file_sizes = np.array(model.file_size_list)
+    logger.info('Bottleneck size [KB]: {} ± {}'.format(file_sizes.mean(), file_sizes.std()))
 
 
 def main(args):
@@ -188,6 +198,7 @@ def main(args):
                  title='[Teacher: {}]'.format(teacher_model_config['name']))
     evaluate(student_model, test_data_loader, device, device_ids, distributed,
              title='[Student: {}]'.format(student_model_config['name']))
+    analyze_bottleneck_size(student_model)
 
 
 if __name__ == '__main__':

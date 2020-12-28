@@ -49,12 +49,13 @@ models:
           params:
             size: *input_size
         - *normalize
-    ckpt: ''
+      analysis_config:
+        mean_std_file_size: True
     compressor:
       name: 'toy_example'
       params:
         entropy_bottleneck_channels: 128
-      ckpt: './resource/ckpt/toy_example/toyimg-0.02-epoch.pt'
+      ckpt: './resource/ckpt/toy_example/toyimg-0.00015625-epoch.pt'
     classifier:
       name: &model_name 'resnet152'
       params:

@@ -1,4 +1,5 @@
 from torch import nn
+from torchdistill.common.file_util import get_binary_object_size
 from torchdistill.datasets.util import build_transform
 
 CUSTOM_MODEL_CLASS_DICT = dict()
@@ -17,10 +18,13 @@ class InputCompressionModel(nn.Module):
         self.classifier = classifier
         self.post_transform = build_transform(post_transform_params)
         self.analysis_config = analysis_config
+        self.file_size_list = list()
 
     def analyze_compressed_object(self, compressed_obj):
         # Analyze tensor size / file size, etc
-        pass
+        if self.analysis_config.get('mean_std_file_size', False):
+            file_size = get_binary_object_size(compressed_obj)
+            self.file_size_list.append(file_size)
 
     def forward(self, x):
         compressed_obj = self.compressor.compress(x)

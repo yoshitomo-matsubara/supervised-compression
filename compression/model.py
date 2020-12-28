@@ -43,12 +43,14 @@ class ImageCompressionModel(BaseCompressionModel):
         )
 
     def compress(self, x, **kwargs):
-        y = self.encoder(x)
-        y_hat, y_likelihoods = self.entropy_bottleneck(y)
-        return y_hat
+        latent = self.encoder(x)
+        compressed_latent = self.entropy_bottleneck.compress(latent)
+        return compressed_latent, latent.size()[2:]
 
-    def decompress(self, y_hat, **kwargs):
-        return self.decoder(y_hat)
+    def decompress(self, compressed_obj, **kwargs):
+        compressed_latent, latent_shape = compressed_obj
+        latent_hat = self.entropy_bottleneck.decompress(compressed_latent, latent_shape)
+        return self.decoder(latent_hat)
 
     def forward(self, x):
         y = self.encoder(x)
