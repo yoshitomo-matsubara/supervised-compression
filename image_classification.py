@@ -6,6 +6,7 @@ import time
 import numpy as np
 import torch
 from torch import distributed as dist
+from torch import nn
 from torch.backends import cudnn
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
@@ -44,6 +45,16 @@ def get_argparser():
 
 
 def load_model(model_config, device, distributed, sync_bn):
+    if 'compressor' not in model_config:
+        model = get_image_classification_model(model_config, distributed, sync_bn)
+        if model is None:
+            repo_or_dir = model_config.get('repo_or_dir', None)
+            model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
+
+        model_ckpt_file_path = model_config['ckpt']
+        load_ckpt(model_ckpt_file_path, model=model, strict=False)
+        return model.to(device)
+
     # Define compressor
     compressor_config = model_config['compressor']
     compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
@@ -68,6 +79,8 @@ def load_model(model_config, device, distributed, sync_bn):
 
 
 def train_one_epoch(training_box, device, epoch, log_freq):
+    org_model = training_box.student_model if hasattr(training_box, 'student_model') else training_box.model
+    intermediate_compressor = module_util.get_module(org_model, 'bottleneck.compressor')
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -77,10 +90,24 @@ def train_one_epoch(training_box, device, epoch, log_freq):
         start_time = time.time()
         sample_batch, targets = sample_batch.to(device), targets.to(device)
         loss = training_box(sample_batch, targets, supp_dict)
-        training_box.update_params(loss)
+        # training_box.update_params(loss)
+        training_box.optimizer.zero_grad()
+        loss.backward()
+        aux_loss = None
+        if isinstance(intermediate_compressor, nn.Module) and intermediate_compressor.training:
+            aux_loss = intermediate_compressor.aux_loss()
+            aux_loss.backward()
+
+        training_box.optimizer.step()
         batch_size = sample_batch.shape[0]
-        metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+        if aux_loss is None:
+            metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+        else:
+            metric_logger.update(loss=loss.item(), aux_loss=aux_loss.item(),
+                                 lr=training_box.optimizer.param_groups[0]['lr'])
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
+    if intermediate_compressor is not None:
+        intermediate_compressor.update()
 
 
 @torch.no_grad()
@@ -128,9 +155,6 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
                                   device, device_ids, distributed, lr_factor)
     best_val_top1_accuracy = 0.0
     optimizer, lr_scheduler = training_box.optimizer, training_box.lr_scheduler
-    if file_util.check_if_exists(ckpt_file_path):
-        best_val_top1_accuracy, _, _ = load_ckpt(ckpt_file_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
-
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
     start_time = time.time()
