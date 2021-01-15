@@ -1,8 +1,9 @@
 import torch.nn as nn
 from compressai.layers import GDN1
-from torchvision.transforms import functional
 from compressai.models import CompressionModel
+from torchdistill.common.file_util import get_binary_object_size
 from torchdistill.models.custom.bottleneck.processor import register_bottleneck_processor
+from torchvision.transforms import functional
 
 from compression.registry import register_compression_model_class, register_compression_model_func
 
@@ -94,6 +95,7 @@ class MiddleCompressionModel(BaseCompressionModel):
         self.decoder = self._build_decoder(entropy_bottleneck_channels, num_input_channels, num_convs)
         self.pad_kwargs = pad_kwargs
         self.crop_kwargs = crop_kwargs
+        self.file_size_list = list()
 
     def compress(self, x, **kwargs):
         latent = self.encoder(x)
@@ -111,6 +113,8 @@ class MiddleCompressionModel(BaseCompressionModel):
 
         if not self.training:
             compressed_obj = self.compress(x)
+            file_size = get_binary_object_size(compressed_obj)
+            self.file_size_list.append(file_size)
             x_hat = self.decompress(compressed_obj)
             if self.crop_kwargs is not None:
                 x_hat = functional.crop(x_hat, **self.crop_kwargs)
