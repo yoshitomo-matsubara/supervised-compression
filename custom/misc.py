@@ -16,3 +16,21 @@ class Crop(nn.Module):
         return functional.crop(z, self.top, self.left, self.height, self.width)
 
 
+class CustomDataParallel(nn.DataParallel):
+    """Custom DataParallel to access the module methods."""
+
+    def __getattr__(self, key):
+        try:
+            return super().__getattr__(key)
+        except AttributeError:
+            return getattr(self.module, key)
+
+
+class CustomDistributedDataParallel(nn.parallel.DistributedDataParallel):
+    """Custom DistributedDataParallel to access the module methods."""
+
+    def __getattr__(self, key):
+        try:
+            return super().__getattr__(key)
+        except AttributeError:
+            return getattr(self.module, key)

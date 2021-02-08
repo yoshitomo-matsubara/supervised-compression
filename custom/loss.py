@@ -20,3 +20,17 @@ class BppBasedLoss(nn.Module):
         num_pixels = n * h * w
         bpp = -likelihoods.log2().sum() if self.reduction == 'sum' else -likelihoods.log2().sum() / num_pixels
         return reconstruction_loss + self.beta * bpp
+
+
+@register_single_loss
+class BppLoss(nn.Module):
+    def __init__(self, entropy_module_path, reduction='mean'):
+        super().__init__()
+        self.entropy_module_path = entropy_module_path
+        self.reduction = reduction
+
+    def forward(self, student_io_dict, *args, **kwargs):
+        entropy_module_dict = student_io_dict[self.entropy_module_path]
+        reconstructed_inputs, likelihoods = entropy_module_dict['output']
+        bpp = -likelihoods.log2().sum()
+        return bpp
