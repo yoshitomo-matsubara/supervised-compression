@@ -2,15 +2,15 @@ from torch import nn
 from torchdistill.common.file_util import get_binary_object_size
 from torchdistill.datasets.util import build_transform
 
-CUSTOM_MODEL_CLASS_DICT = dict()
+CUSTOM_CLASSIFIER_CLASS_DICT = dict()
 
 
-def register_custom_model_class(cls):
-    CUSTOM_MODEL_CLASS_DICT[cls.__name__] = cls
+def register_custom_classifier_class(cls):
+    CUSTOM_CLASSIFIER_CLASS_DICT[cls.__name__] = cls
     return cls
 
 
-class BaseCustomModel(nn.Module):
+class BaseCustomClassifier(nn.Module):
     def __init__(self, analysis_config):
         super().__init__()
         self.analysis_config = analysis_config
@@ -23,8 +23,8 @@ class BaseCustomModel(nn.Module):
             self.file_size_list.append(file_size)
 
 
-@register_custom_model_class
-class InputCompressionModel(BaseCustomModel):
+@register_custom_classifier_class
+class InputCompressionClassifier(BaseCustomClassifier):
     def __init__(self, compressor, classifier, post_transform_params=None, analysis_config=None):
         super().__init__(analysis_config)
         self.compressor = compressor
@@ -43,8 +43,8 @@ class InputCompressionModel(BaseCustomModel):
         return self.classifier(decompressed_obj)
 
 
-@register_custom_model_class
-class BottleneckInjectedModel(BaseCustomModel):
+@register_custom_classifier_class
+class BottleneckInjectedClassifier(BaseCustomClassifier):
     def __init__(self, classifier, analysis_config=None, *kwargs):
         super().__init__(analysis_config)
         self.classifier = classifier
@@ -58,6 +58,6 @@ class BottleneckInjectedModel(BaseCustomModel):
 
 
 def get_custom_model(model_name, compressor, classifier, **kwargs):
-    if model_name not in CUSTOM_MODEL_CLASS_DICT:
+    if model_name not in CUSTOM_CLASSIFIER_CLASS_DICT:
         raise ValueError('model_name `{}` is not expected'.format(model_name))
-    return CUSTOM_MODEL_CLASS_DICT[model_name](compressor=compressor, classifier=classifier, **kwargs)
+    return CUSTOM_CLASSIFIER_CLASS_DICT[model_name](compressor=compressor, classifier=classifier, **kwargs)
