@@ -1,0 +1,127 @@
+datasets:
+  ilsvrc2012:
+    name: &dataset_name 'ilsvrc2012'
+    type: 'ImageFolder'
+    root: &root_dir !join ['~/dataset/', *dataset_name]
+    splits:
+      train:
+        dataset_id: &imagenet_train !join [*dataset_name, '/train']
+        params:
+          root: !join [*root_dir, '/train']
+          transform_params:
+            - type: 'RandomResizedCrop'
+              params:
+                size: &input_size [224, 224]
+            - type: 'RandomHorizontalFlip'
+              params:
+                p: 0.5
+            - &totensor
+              type: 'ToTensor'
+              params:
+            - &normalize
+              type: 'Normalize'
+              params:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+      val:
+        dataset_id: &imagenet_val !join [*dataset_name, '/val']
+        params:
+          root: !join [*root_dir, '/val']
+          transform_params:
+            - type: 'Resize'
+              params:
+                size: 256
+            - type: 'CenterCrop'
+              params:
+                size: *input_size
+            - *totensor
+            - *normalize
+
+models:
+  model:
+    name: &student_model_name 'custom_resnet152'
+    params:
+      bottleneck_channel: &bch 12
+      bottleneck_idx: 7
+      compressor:
+        name: 'MiddleCompressionModel'
+        params:
+          num_input_channels: *bch
+          entropy_bottleneck_channels: 128
+          num_convs: &num_convs 3
+          pad_kwargs:
+            padding: [0, 0, 3, 3]
+          crop_kwargs:
+            top: 0
+            left: 0
+            height: 29
+            width: 29
+      decompressor:
+      num_classes: 1000
+      pretrained: True
+    experiment: &student_experiment !join [ *dataset_name, '-', *student_model_name, '_from_resnet152-', *bch, 'ch']
+    start_ckpt: !join [ './resource/ckpt/ilsvrc2012/multi_stage/bottlefit/', *student_experiment, '.pt' ]
+    ckpt: !join ['./resource/ckpt/ilsvrc2012/middle_compression/', *student_experiment, '-', *num_convs, 'convs-beta0.00015625.pt']
+
+train:
+  log_freq: 1000
+  num_epochs: 2
+  train_data_loader:
+    dataset_id: *imagenet_train
+    random_sample: True
+    batch_size: 32
+    num_workers: 16
+    cache_output:
+  val_data_loader:
+    dataset_id: *imagenet_val
+    random_sample: False
+    batch_size: 32
+    num_workers: 16
+  model:
+    adaptations:
+    sequential: ['bottleneck.encoder', 'bottleneck.compressor']
+    frozen_modules: ['bottleneck.encoder', 'bottleneck.decoder', 'layer3', 'layer4', 'fc']
+    forward_hook:
+      input: ['bottleneck.compressor']
+      output: ['bottleneck.compressor']
+    wrapper:
+    requires_grad: True
+  apex:
+    requires: False
+    opt_level: '01'
+  optimizer:
+    type: 'Adam'
+    params:
+      lr: 0.001
+    module_wise_params:
+      - params:
+          lr: 0.0001
+        module: 'bottleneck.compressor'
+      - params:
+          lr: 0.001
+        module: 'bottleneck.compressor.entropy_bottleneck'
+  scheduler:
+    type: 'MultiStepLR'
+    params:
+      milestones: [1]
+      gamma: 0.1
+  criterion:
+    type: 'GeneralizedCustomLoss'
+    org_term:
+      factor: 0.0
+    sub_terms:
+      bpp_based_loss:
+        criterion:
+          type: 'BppBasedLoss'
+          params:
+            compressor_module_path: 'bottleneck.compressor'
+            beta: 0.00015625
+            reduction: 'mean'
+        factor: 1.0
+
+test:
+  test_data_loader:
+    dataset_id: *imagenet_val
+    random_sample: False
+    batch_size: 1
+    num_workers: 16
