@@ -127,6 +127,7 @@ def evaluate(model, data_loader, device, device_ids, distributed, log_freq=1000,
     model.to(device)
     entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
     if entropy_bottleneck_module is not None:
+        logger.info('Updating entropy bottleneck')
         entropy_bottleneck_module.update()
     else:
         if distributed:
@@ -206,7 +207,9 @@ def analyze_bottleneck_size(model):
     if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionClassifier):
-        file_size_list = list(model.file_size_list)
+        file_size_list = model.file_size_list
+    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_head'):
+        file_size_list = model.backbone.bottleneck_head.file_size_list
 
     if len(file_size_list) == 0:
         return
