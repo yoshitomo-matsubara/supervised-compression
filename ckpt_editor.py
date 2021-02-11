@@ -21,7 +21,14 @@ def load_ckpt(file_path_or_model_name):
         ckpt = torch.load(file_path_or_model_name, map_location=torch.device('cpu'))
         return ckpt
 
-    model = models.__dict__[file_path_or_model_name](pretrained=True)
+    if file_path_or_model_name in models.__dict__:
+        model = models.__dict__[file_path_or_model_name](pretrained=True)
+    elif file_path_or_model_name in models.detection.__dict__:
+        model = models.detection.__dict__[file_path_or_model_name](pretrained=True)
+    elif file_path_or_model_name in models.segmentation.__dict__:
+        model = models.segmentation.__dict__[file_path_or_model_name](pretrained=True)
+    else:
+        ValueError('model_name `{}` is not expected'.format(file_path_or_model_name))
     return {'model': model.state_dict()}
 
 
@@ -32,8 +39,10 @@ def replace_parameters(source_ckpt, prefix, target_ckpt):
         new_module_path = prefix + source_module_path
         if source_module_path in target_model_ckpt and \
                 (source_module_path.startswith(prefix) or len(prefix) == 0):
+            print('Parameters of `{}` are replaced with those of `{}`'.format(source_module_path, source_module_path))
             target_model_ckpt[source_module_path] = source_param
         elif new_module_path in target_model_ckpt:
+            print('Parameters of `{}` are replaced with those of `{}`'.format(new_module_path, source_module_path))
             target_model_ckpt[new_module_path] = source_param
 
 
@@ -46,6 +55,8 @@ def main(args):
     edit_mode = args.mode
     if edit_mode == 'overwrite':
         replace_parameters(source_ckpt, prefix, target_ckpt)
+    else:
+        ValueError('mode `{}` is not expected'.format(edit_mode))
 
     output_file_path = args.output
     file_util.make_parent_dirs(output_file_path)
