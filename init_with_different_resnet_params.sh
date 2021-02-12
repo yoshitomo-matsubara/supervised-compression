@@ -1,3 +1,4 @@
+#!/bin/bash -eu
 # Share ResNet's params
 pipenv run python ckpt_editor.py --source resnet50 --target retinanet_resnet50_fpn --mode overwrite --target_prefix backbone.body. --output edited_ckpt/retinanet_resnet50_fpn-ilsvrc2012.pt
 pipenv run python ckpt_editor.py --source resnet50 --target keypointrcnn_resnet50_fpn --mode overwrite --target_prefix backbone.body. --output edited_ckpt/keypointrcnn_resnet50_fpn-ilsvrc2012.pt
