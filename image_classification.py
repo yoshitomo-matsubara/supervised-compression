@@ -8,8 +8,6 @@ import torch
 from torch import distributed as dist
 from torch import nn
 from torch.backends import cudnn
-from torch.nn import DataParallel
-from torch.nn.parallel import DistributedDataParallel
 from torchdistill.common import yaml_util, module_util
 from torchdistill.common.constant import def_logger
 from torchdistill.common.main_util import is_main_process, init_distributed_mode, load_ckpt, save_ckpt
@@ -23,8 +21,8 @@ from torchdistill.models.official import get_image_classification_model
 from torchdistill.models.registry import get_model
 
 from compression.registry import get_compression_model
-from custom.classifier import InputCompressionModel
-from custom.classifier import get_custom_model
+from custom.classifier import InputCompressionClassifier, get_custom_model
+from custom.misc import CustomDataParallel, CustomDistributedDataParallel
 
 logger = def_logger.getChild(__name__)
 
@@ -83,14 +81,20 @@ def load_model(model_config, device, distributed, sync_bn):
     return custom_model.to(device)
 
 
-def extract_intermediate_compressor(model):
-    intermediate_compressor = module_util.get_module(model, 'bottleneck.compressor')
-    return intermediate_compressor
+def extract_entropy_bottleneck_module(model):
+    model_wo_ddp = model.module if module_util.check_if_wrapped(model) else model
+    if hasattr(model_wo_ddp, 'bottleneck'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'bottleneck.compressor')
+        return entropy_bottleneck_module
+    elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_head'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.bottleneck_head')
+        return entropy_bottleneck_module
+    return None
 
 
 def train_one_epoch(training_box, device, epoch, log_freq):
     model = training_box.student_model if hasattr(training_box, 'student_model') else training_box.model
-    intermediate_compressor = extract_intermediate_compressor(model)
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -104,8 +108,8 @@ def train_one_epoch(training_box, device, epoch, log_freq):
         training_box.optimizer.zero_grad()
         loss.backward()
         aux_loss = None
-        if isinstance(intermediate_compressor, nn.Module) and intermediate_compressor.training:
-            aux_loss = intermediate_compressor.aux_loss()
+        if isinstance(entropy_bottleneck_module, nn.Module) and entropy_bottleneck_module.training:
+            aux_loss = entropy_bottleneck_module.aux_loss()
             aux_loss.backward()
 
         training_box.optimizer.step()
@@ -121,14 +125,15 @@ def train_one_epoch(training_box, device, epoch, log_freq):
 @torch.no_grad()
 def evaluate(model, data_loader, device, device_ids, distributed, log_freq=1000, title=None, header='Test:'):
     model.to(device)
-    intermediate_compressor = extract_intermediate_compressor(model)
-    if intermediate_compressor is not None:
-        intermediate_compressor.update()
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
+    if entropy_bottleneck_module is not None:
+        logger.info('Updating entropy bottleneck')
+        entropy_bottleneck_module.update()
     else:
         if distributed:
-            model = DistributedDataParallel(model, device_ids=device_ids)
+            model = CustomDistributedDataParallel(model, device_ids=device_ids)
         elif device.type.startswith('cuda'):
-            model = DataParallel(model, device_ids=device_ids)
+            model = CustomDataParallel(model, device_ids=device_ids)
 
     if title is not None:
         logger.info(title)
@@ -169,12 +174,12 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     optimizer, lr_scheduler = training_box.optimizer, training_box.lr_scheduler
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
-    intermediate_compressor = extract_intermediate_compressor(student_model_without_ddp)
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(student_model_without_ddp)
     start_time = time.time()
     for epoch in range(args.start_epoch, training_box.num_epochs):
         training_box.pre_process(epoch=epoch)
         train_one_epoch(training_box, device, epoch, log_freq)
-        if intermediate_compressor is None:
+        if entropy_bottleneck_module is None:
             val_top1_accuracy = evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
                                          log_freq=log_freq, header='Validation:')
             if val_top1_accuracy > best_val_top1_accuracy and is_main_process():
@@ -191,7 +196,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
-    if intermediate_compressor is not None:
+    if entropy_bottleneck_module is not None:
         save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
                   best_val_top1_accuracy, config, args, ckpt_file_path)
     training_box.clean_modules()
@@ -201,8 +206,10 @@ def analyze_bottleneck_size(model):
     file_size_list = list()
     if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
         file_size_list = model.bottleneck.compressor.file_size_list
-    elif isinstance(model, InputCompressionModel):
-        file_size_list = list(model.file_size_list)
+    elif isinstance(model, InputCompressionClassifier):
+        file_size_list = model.file_size_list
+    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_head'):
+        file_size_list = model.backbone.bottleneck_head.file_size_list
 
     if len(file_size_list) == 0:
         return

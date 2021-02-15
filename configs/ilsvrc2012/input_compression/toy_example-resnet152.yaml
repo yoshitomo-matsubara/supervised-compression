@@ -34,7 +34,8 @@ datasets:
             - type: 'CenterCrop'
               params:
                 size: *input_size
-            - *totensor
+            - type: 'ToTensor'
+              params:
             - type: 'Pad'
               params:
                 padding: 16
@@ -42,7 +43,7 @@ datasets:
 
 models:
   model:
-    name: 'InputCompressionModel'
+    name: 'InputCompressionClassifier'
     params:
       post_transform_params:
         - type: 'CenterCrop'
