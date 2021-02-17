@@ -4,14 +4,13 @@ import datetime
 import os
 import time
 
+import numpy as np
 import torch
+from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
 from torch.backends import cudnn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data._utils.collate import default_collate
-from torchvision.models.detection.keypoint_rcnn import KeypointRCNN
-from torchvision.models.detection.mask_rcnn import MaskRCNN
-
 from torchdistill.common import file_util, module_util, yaml_util
 from torchdistill.common.constant import def_logger
 from torchdistill.common.main_util import is_main_process, init_distributed_mode, load_ckpt, save_ckpt
@@ -23,9 +22,11 @@ from torchdistill.eval.coco import CocoEvaluator
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
 from torchdistill.models.official import get_object_detection_model
 from torchdistill.models.registry import get_model
-from custom.detector import InputCompressionDetector, get_custom_model
+from torchvision.models.detection.keypoint_rcnn import KeypointRCNN
+from torchvision.models.detection.mask_rcnn import MaskRCNN
+
 from compression.registry import get_compression_model
-import numpy as np
+from custom.detector import InputCompressionDetector, get_custom_model
 
 logger = def_logger.getChild(__name__)
 
@@ -64,6 +65,8 @@ def load_model(model_config, device):
     if os.path.isfile(compressor_ckpt_file_path):
         logger.info('Loading compressor parameters')
         state_dict = torch.load(compressor_ckpt_file_path)
+        # Old parameter keys do not work with recent version of compressai
+        state_dict = load_pretrained(state_dict)
         compressor.load_state_dict(state_dict)
 
     compressor.update()
