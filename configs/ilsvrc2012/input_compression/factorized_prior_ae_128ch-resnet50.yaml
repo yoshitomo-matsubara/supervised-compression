@@ -37,10 +37,10 @@ models:
       analysis_config:
         mean_std_file_size: True
     compressor:
-      name: 'toy_example'
+      name: 'FactorizedPriorAE'
       params:
         entropy_bottleneck_channels: 128
-      ckpt: './resource/ckpt/toy_example/toyimg-0.00015625-epoch.pt'
+      ckpt: './resource/ckpt/input_compression/factorized_prior_ae_128ch-0.00015625-epoch.pt'
     classifier:
       name: &model_name 'resnet50'
       params:
