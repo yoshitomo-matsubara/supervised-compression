@@ -42,7 +42,7 @@ models:
         entropy_bottleneck_channels: 128
       ckpt: './resource/ckpt/toy_example/toyimg-0.00015625-epoch.pt'
     classifier:
-      name: &model_name 'resnet152'
+      name: &model_name 'resnet50'
       params:
         num_classes: 1000
         pretrained: True
