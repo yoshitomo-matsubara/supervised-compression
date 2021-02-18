@@ -22,7 +22,7 @@ def extract_org_segment_loss(org_criterion, student_outputs, teacher_outputs, ta
         org_loss = sub_loss_dict['out']
         if 'aux' in sub_loss_dict:
             org_loss += 0.5 * sub_loss_dict['aux']
-        org_loss_dict.update(org_loss)
+        org_loss_dict['total'] = org_loss
     return org_loss_dict
 
 
