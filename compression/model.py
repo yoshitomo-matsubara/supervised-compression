@@ -78,7 +78,8 @@ class HierarchicalPriorAE(MeanScaleHyperprior):
         shape = dic['shape']
         return strings, shape
 
-    def decompress(self, strings, shape):
+    def decompress(self, compressed_obj, **kwargs):
+        strings, shape = compressed_obj
         dic = super().decompress(strings, shape)
         return dic['x_hat']
 
