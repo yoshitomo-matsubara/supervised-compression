@@ -218,7 +218,7 @@ def analyze_bottleneck_size(model):
         return
 
     file_sizes = np.array(file_size_list)
-    logger.info('Bottleneck size [KB]: {} ± {}'.format(file_sizes.mean(), file_sizes.std()))
+    logger.info('Bottleneck size [KB]: mean {}, std {}'.format(file_sizes.mean(), file_sizes.std()))
 
 
 def main(args):
