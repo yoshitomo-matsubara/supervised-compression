@@ -40,7 +40,7 @@ models:
       name: 'FactorizedPriorAE'
       params:
         entropy_bottleneck_channels: 128
-      ckpt: './resource/ckpt/input_compression/factorized_prior_ae_128ch-0.00015625-epoch.pt'
+      ckpt: './resource/ckpt/input_compression/factorized_prior_ae_128ch-beta_0.00015625.pt'
     classifier:
       name: &model_name 'resnet50'
       params:
