@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 import torch
+from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
 from torch import nn
 from torch.backends import cudnn
@@ -65,6 +66,8 @@ def load_model(model_config, device, distributed, sync_bn):
     if os.path.isfile(compressor_ckpt_file_path):
         logger.info('Loading compressor parameters')
         state_dict = torch.load(compressor_ckpt_file_path)
+        # Old parameter keys do not work with recent version of compressai
+        state_dict = load_pretrained(state_dict)
         compressor.load_state_dict(state_dict)
 
     compressor.update()
@@ -215,7 +218,7 @@ def analyze_bottleneck_size(model):
         return
 
     file_sizes = np.array(file_size_list)
-    logger.info('Bottleneck size [KB]: {} ± {}'.format(file_sizes.mean(), file_sizes.std()))
+    logger.info('Bottleneck size [KB]: mean {}, std {}'.format(file_sizes.mean(), file_sizes.std()))
 
 
 def main(args):
