@@ -101,6 +101,7 @@ train:
       num_iterations: None
       num_epochs: *num_epochs
       factor: 0.9
+    scheduling_step: 1
   criterion:
     type: 'GeneralizedCustomLoss'
     func2extract_org_loss: 'extract_org_segment_loss'
