@@ -20,6 +20,7 @@ from torchdistill.eval.coco import SegEvaluator
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
 from torchdistill.models.official import get_semantic_segmentation_model
 from torchdistill.models.registry import get_model
+import math
 import custom
 
 logger = def_logger.getChild(__name__)
@@ -42,11 +43,13 @@ def get_argparser():
     return parser
 
 
-def customize_config(config, dataset_dict):
+def customize_config(config, dataset_dict, world_size):
     train_config = config['train']
-    train_dataset_size = len(dataset_dict[train_config['train_data_loader']['dataset_id']])
+    train_data_loader_config = train_config['train_data_loader']
+    num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
+                               train_data_loader_config['batch_size'] / world_size)
     if 'scheduler' in train_config and train_config['scheduler']['type'] == 'custom_lambda_lr':
-        train_config['scheduler']['params']['dataset_size'] = train_dataset_size
+        train_config['scheduler']['params']['num_iterations'] = num_iterations
 
 
 def load_model(model_config, device):
@@ -160,14 +163,15 @@ def main(args):
     if is_main_process() and log_file_path is not None:
         setup_log_file(os.path.expanduser(log_file_path))
 
-    distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    world_size = args.world_size
+    distributed, device_ids = init_distributed_mode(world_size, args.dist_url)
     logger.info(args)
     cudnn.benchmark = True
     config = yaml_util.load_yaml_file(os.path.expanduser(args.config))
     device = torch.device(args.device)
     dataset_dict = util.get_all_dataset(config['datasets'])
     # Update config with dataset size len(data_loader)
-    customize_config(config, dataset_dict)
+    customize_config(config, dataset_dict, world_size)
 
     models_config = config['models']
     teacher_model_config = models_config.get('teacher_model', None)
