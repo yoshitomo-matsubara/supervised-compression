@@ -1,0 +1,53 @@
+datasets:
+  ilsvrc2012:
+    name: &dataset_name 'ilsvrc2012'
+    type: 'ImageFolder'
+    root: &root_dir !join ['~/dataset/', *dataset_name]
+    splits:
+      train:
+        dataset_id: &imagenet_train !join [*dataset_name, '/train']
+        params:
+          root: !join [*root_dir, '/train']
+          transform_params:
+            - type: 'RandomResizedCrop'
+              params:
+                size: &input_size [224, 224]
+            - type: 'RandomHorizontalFlip'
+              params:
+                p: 0.5
+            - &totensor
+              type: 'ToTensor'
+              params:
+            - &normalize
+              type: 'Normalize'
+              params:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+      val:
+        dataset_id: &imagenet_val !join [*dataset_name, '/val']
+        params:
+          root: !join [*root_dir, '/val']
+          transform_params:
+            - type: 'Resize'
+              params:
+                size: 256
+            - type: 'CenterCrop'
+              params:
+                size: *input_size
+            - *totensor
+            - *normalize
+
+models:
+  model:
+    name: 'resnet50'
+    params:
+      num_classes: 1000
+      pretrained: True
+    ckpt: !join ['./edited_ckpt/resnet50-retinanet_resnet50_fpn.pt']
+
+test:
+  test_data_loader:
+    dataset_id: *imagenet_val
+    random_sample: False
+    batch_size: 1
+    num_workers: 16
