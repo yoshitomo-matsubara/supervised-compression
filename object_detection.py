@@ -109,6 +109,9 @@ def get_iou_types(model):
     if isinstance(model, DistributedDataParallel):
         model_without_ddp = model.module
 
+    if isinstance(model_without_ddp, InputCompressionDetector):
+        model_without_ddp = model_without_ddp.detector
+
     iou_type_list = ['bbox']
     if isinstance(model_without_ddp, MaskRCNN):
         iou_type_list.append('segm')
