@@ -60,16 +60,19 @@ def load_model(model_config, device):
 
     # Define compressor
     compressor_config = model_config['compressor']
-    compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
-    compressor_ckpt_file_path = compressor_config['ckpt']
-    if os.path.isfile(compressor_ckpt_file_path):
-        logger.info('Loading compressor parameters')
-        state_dict = torch.load(compressor_ckpt_file_path)
-        # Old parameter keys do not work with recent version of compressai
-        state_dict = load_pretrained(state_dict)
-        compressor.load_state_dict(state_dict)
+    compressor = get_compression_model(compressor_config['name'], **compressor_config['params']) \
+        if compressor_config is not None else None
 
-    compressor.update()
+    if compressor is not None:
+        compressor_ckpt_file_path = compressor_config['ckpt']
+        if os.path.isfile(compressor_ckpt_file_path):
+            logger.info('Loading compressor parameters')
+            state_dict = torch.load(compressor_ckpt_file_path)
+            # Old parameter keys do not work with recent version of compressai
+            state_dict = load_pretrained(state_dict)
+            compressor.load_state_dict(state_dict)
+        compressor.update()
+
     # Define detector
     detector_config = model_config['detector']
     detector = get_object_detection_model(detector_config)
@@ -225,7 +228,7 @@ def analyze_bottleneck_size(model):
         return
 
     file_sizes = np.array(file_size_list)
-    logger.info('Bottleneck size [KB]: {} ± {}'.format(file_sizes.mean(), file_sizes.std()))
+    logger.info('Bottleneck size [KB]: mean {} std {}'.format(file_sizes.mean(), file_sizes.std()))
 
 
 def main(args):
