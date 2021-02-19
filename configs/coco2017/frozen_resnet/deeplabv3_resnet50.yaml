@@ -98,7 +98,7 @@ train:
   scheduler:
     type: 'custom_lambda_lr'
     params:
-      dataset_size: None
+      num_iterations: None
       num_epochs: *num_epochs
       factor: 0.9
   criterion:
