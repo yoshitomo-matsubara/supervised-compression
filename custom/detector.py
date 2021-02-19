@@ -38,6 +38,9 @@ class TransformWrapper(nn.Module):
             images = self.compress_decompress(images)
         return images, targets
 
+    def postprocess(self, *args, **kwargs):
+        return self.org_transform.postprocess(*args, **kwargs)
+
 
 @register_custom_classifier_class
 class InputCompressionDetector(nn.Module):
@@ -50,7 +53,7 @@ class InputCompressionDetector(nn.Module):
         return self.detector(*args)
 
 
-def get_custom_model(model_name, compressor, classifier, **kwargs):
+def get_custom_model(model_name, compressor, detector, **kwargs):
     if model_name not in CUSTOM_DETECTOR_CLASS_DICT:
         raise ValueError('model_name `{}` is not expected'.format(model_name))
-    return CUSTOM_DETECTOR_CLASS_DICT[model_name](compressor=compressor, classifier=classifier, **kwargs)
+    return CUSTOM_DETECTOR_CLASS_DICT[model_name](compressor=compressor, detector=detector, **kwargs)

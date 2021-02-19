@@ -70,7 +70,7 @@ def load_model(model_config, device):
         compressor.load_state_dict(state_dict)
 
     compressor.update()
-    # Define classifier
+    # Define detector
     detector_config = model_config['detector']
     detector = get_object_detection_model(detector_config)
     if detector is None:
@@ -244,9 +244,9 @@ def main(args):
     teacher_model = load_model(teacher_model_config, device) if teacher_model_config is not None else None
     student_model_config =\
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
-    ckpt_file_path = student_model_config['ckpt']
     student_model = load_model(student_model_config, device)
     if not args.test_only:
+        ckpt_file_path = student_model_config['ckpt']
         train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
         student_model_without_ddp =\
             student_model.module if module_util.check_if_wrapped(student_model) else student_model
