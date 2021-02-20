@@ -1,8 +1,10 @@
 from io import BytesIO
 
 from PIL import Image
+from torch import nn
 from torchdistill.datasets.transform import register_transform_class
 from torchvision.transforms import CenterCrop
+from torchvision.transforms.functional import pad
 
 
 @register_transform_class
@@ -18,3 +20,24 @@ class JpegCenterCrop(CenterCrop):
             img.save(img_buffer, 'JPEG', quality=self.jpeg_quality)
             img = Image.open(img_buffer)
         return img
+
+
+@register_transform_class
+class AdaptivePad(nn.Module):
+    def __init__(self, fill=0, padding_mode='constant', factor=128):
+        super().__init__()
+        self.fill = fill
+        self.padding_mode = padding_mode
+        self.factor = factor
+
+    def forward(self, x):
+        height, width = x.shape[-2:]
+        vertical_pad_size = 0 if height % self.factor == 0 else int((height // self.factor + 1) * self.factor - height)
+        horizontal_pad_size = 0 if width % self.factor == 0 else int((width // self.factor + 1) * self.factor - width)
+        padded_vertical_size = vertical_pad_size + height
+        padded_horizontal_size = horizontal_pad_size + width
+        assert padded_vertical_size % self.factor == 0 and padded_horizontal_size % self.factor == 0, \
+            'padded vertical and horizontal sizes ({}, {}) should be ' \
+            'factor of {}'.format(padded_vertical_size, padded_horizontal_size, self.factor)
+        padding = [0, 0, horizontal_pad_size, vertical_pad_size]
+        return pad(x, padding, self.fill, self.padding_mode), height, width
