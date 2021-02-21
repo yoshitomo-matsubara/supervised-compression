@@ -1,15 +1,17 @@
 import argparse
 import datetime
+import math
 import os
 import time
 
+import numpy as np
 import torch
+from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
 from torch.backends import cudnn
 from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data._utils.collate import default_collate
-
 from torchdistill.common import file_util, module_util, yaml_util
 from torchdistill.common.constant import def_logger
 from torchdistill.common.main_util import is_main_process, init_distributed_mode, load_ckpt, save_ckpt
@@ -18,10 +20,12 @@ from torchdistill.core.training import get_training_box
 from torchdistill.datasets import util
 from torchdistill.eval.coco import SegEvaluator
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
+from torchdistill.models.custom.bottleneck.base import BottleneckBase
 from torchdistill.models.official import get_semantic_segmentation_model
 from torchdistill.models.registry import get_model
-import math
-import custom
+
+from compression.registry import get_compression_model
+from custom.segmenter import InputCompressionSegmenter, get_custom_model
 
 logger = def_logger.getChild(__name__)
 
@@ -56,14 +60,39 @@ def customize_config(config, dataset_dict, world_size):
 
 
 def load_model(model_config, device):
-    model = get_semantic_segmentation_model(model_config)
-    if model is None:
-        repo_or_dir = model_config.get('repo_or_dir', None)
-        model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
+    if 'compressor' not in model_config:
+        model = get_semantic_segmentation_model(model_config)
+        if model is None:
+            repo_or_dir = model_config.get('repo_or_dir', None)
+            model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
-    ckpt_file_path = model_config['ckpt']
-    load_ckpt(ckpt_file_path, model=model, strict=True)
-    return model.to(device)
+        ckpt_file_path = model_config['ckpt']
+        load_ckpt(ckpt_file_path, model=model, strict=True)
+        return model.to(device)
+
+    # Define compressor
+    compressor_config = model_config['compressor']
+    compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
+    compressor_ckpt_file_path = compressor_config['ckpt']
+    if os.path.isfile(compressor_ckpt_file_path):
+        logger.info('Loading compressor parameters')
+        state_dict = torch.load(compressor_ckpt_file_path)
+        # Old parameter keys do not work with recent version of compressai
+        state_dict = load_pretrained(state_dict)
+        compressor.load_state_dict(state_dict)
+
+    compressor.update()
+    # Define segmenter
+    segmenter_config = model_config['segmenter']
+    segmenter = get_semantic_segmentation_model(segmenter_config)
+    if segmenter is None:
+        repo_or_dir = segmenter_config.get('repo_or_dir', None)
+        segmenter = get_model(segmenter_config['name'], repo_or_dir, **segmenter_config['params'])
+
+    segmenter_ckpt_file_path = segmenter_config['ckpt']
+    load_ckpt(segmenter_ckpt_file_path, model=segmenter, strict=True)
+    custom_model = get_custom_model(model_config['name'], compressor, segmenter, **model_config['params'])
+    return custom_model.to(device)
 
 
 def train_one_epoch(training_box, device, epoch, log_freq):
@@ -102,6 +131,9 @@ def evaluate(model, data_loader, device, device_ids, distributed, num_classes,
     metric_logger = MetricLogger(delimiter='  ')
     seg_evaluator = SegEvaluator(num_classes)
     for sample_batch, targets in metric_logger.log_every(data_loader, log_freq, header):
+        if isinstance(sample_batch, tuple):
+            sample_batch = sample_batch[0]
+
         sample_batch, targets = sample_batch.to(device), targets.to(device)
         torch.cuda.synchronize()
         model_time = time.time()
@@ -161,6 +193,22 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     training_box.clean_modules()
 
 
+def analyze_bottleneck_size(model):
+    file_size_list = list()
+    if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
+        file_size_list = model.bottleneck.compressor.file_size_list
+    elif isinstance(model, InputCompressionSegmenter):
+        file_size_list = model.file_size_list
+    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_layer'):
+        file_size_list = model.backbone.bottleneck_layer.file_size_list
+
+    if len(file_size_list) == 0:
+        return
+
+    file_sizes = np.array(file_size_list)
+    logger.info('Bottleneck size [KB]: mean {} std {}'.format(file_sizes.mean(), file_sizes.std()))
+
+
 def main(args):
     log_file_path = args.log
     if is_main_process() and log_file_path is not None:
@@ -181,7 +229,6 @@ def main(args):
     teacher_model = load_model(teacher_model_config, device) if teacher_model_config is not None else None
     student_model_config =\
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
-    ckpt_file_path = student_model_config['ckpt']
     student_model = load_model(student_model_config, device)
 
     if distributed:
@@ -190,6 +237,7 @@ def main(args):
         student_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(student_model)
 
     if not args.test_only:
+        ckpt_file_path = student_model_config['ckpt']
         train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
         student_model_without_ddp =\
             student_model.module if module_util.check_if_wrapped(student_model) else student_model
@@ -205,6 +253,7 @@ def main(args):
                  title='[Teacher: {}]'.format(teacher_model_config['name']))
     evaluate(student_model, test_data_loader, device, device_ids, distributed, num_classes=num_classes,
              title='[Student: {}]'.format(student_model_config['name']))
+    analyze_bottleneck_size(student_model)
 
 
 if __name__ == '__main__':

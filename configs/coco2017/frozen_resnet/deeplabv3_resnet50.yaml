@@ -11,7 +11,7 @@ datasets:
         annotated_only: True
         is_segment: True
         random_horizontal_flip: 0.5
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 260
@@ -36,7 +36,7 @@ datasets:
         annotations: !join [*root_dir, '/annotations/instances_val2017.json']
         annotated_only: False
         is_segment: True
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 520
