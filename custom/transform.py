@@ -1,10 +1,12 @@
 from io import BytesIO
 
+import numpy as np
+import torch
 from PIL import Image
 from torch import nn
 from torchdistill.datasets.transform import register_transform_class
 from torchvision.transforms import CenterCrop
-from torchvision.transforms.functional import pad
+from torchvision.transforms.functional import to_tensor, pad
 
 
 @register_transform_class
@@ -20,6 +22,22 @@ class JpegCenterCrop(CenterCrop):
             img.save(img_buffer, 'JPEG', quality=self.jpeg_quality)
             img = Image.open(img_buffer)
         return img
+
+
+@register_transform_class
+class CustomJpegToTensor(object):
+    def __init__(self, jpeg_quality=None):
+        self.jpeg_quality = jpeg_quality
+
+    def __call__(self, image, target):
+        if self.jpeg_quality is not None:
+            img_buffer = BytesIO()
+            image.save(img_buffer, 'JPEG', quality=self.jpeg_quality)
+            image = Image.open(img_buffer)
+
+        image = to_tensor(image)
+        target = torch.as_tensor(np.array(target), dtype=torch.int64)
+        return image, target
 
 
 @register_transform_class
