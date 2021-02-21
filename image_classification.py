@@ -89,8 +89,8 @@ def extract_entropy_bottleneck_module(model):
     if hasattr(model_wo_ddp, 'bottleneck'):
         entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'bottleneck.compressor')
         return entropy_bottleneck_module
-    elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_head'):
-        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.bottleneck_head')
+    elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_layer'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.bottleneck_layer')
         return entropy_bottleneck_module
     return None
 
@@ -211,8 +211,8 @@ def analyze_bottleneck_size(model):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionClassifier):
         file_size_list = model.file_size_list
-    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_head'):
-        file_size_list = model.backbone.bottleneck_head.file_size_list
+    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_layer'):
+        file_size_list = model.backbone.bottleneck_layer.file_size_list
 
     if len(file_size_list) == 0:
         return

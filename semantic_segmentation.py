@@ -44,6 +44,9 @@ def get_argparser():
 
 
 def customize_config(config, dataset_dict, world_size):
+    if 'train' not in config:
+        return
+
     train_config = config['train']
     train_data_loader_config = train_config['train_data_loader']
     num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
