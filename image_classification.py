@@ -70,6 +70,7 @@ def load_model(model_config, device, distributed, sync_bn):
         state_dict = load_pretrained(state_dict)
         compressor.load_state_dict(state_dict)
 
+    logger.info('Updating compression model')
     compressor.update()
     # Define classifier
     classifier_config = model_config['classifier']

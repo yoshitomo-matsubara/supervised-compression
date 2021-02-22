@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
+from torch import nn
 from torch.backends import cudnn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data._utils.collate import default_collate
@@ -71,6 +72,8 @@ def load_model(model_config, device):
             # Old parameter keys do not work with recent version of compressai
             state_dict = load_pretrained(state_dict)
             compressor.load_state_dict(state_dict)
+
+        logger.info('Updating compression model')
         compressor.update()
 
     # Define detector
@@ -86,7 +89,20 @@ def load_model(model_config, device):
     return custom_model.to(device)
 
 
+def extract_entropy_bottleneck_module(model):
+    model_wo_ddp = model.module if module_util.check_if_wrapped(model) else model
+    if hasattr(model_wo_ddp, 'bottleneck'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'bottleneck.compressor')
+        return entropy_bottleneck_module
+    elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_layer'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.bottleneck_layer')
+        return entropy_bottleneck_module
+    return None
+
+
 def train_one_epoch(training_box, device, epoch, log_freq):
+    model = training_box.student_model if hasattr(training_box, 'student_model') else training_box.model
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -98,9 +114,21 @@ def train_one_epoch(training_box, device, epoch, log_freq):
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         supp_dict = default_collate(supp_dict)
         loss = training_box(sample_batch, targets, supp_dict)
-        training_box.update_params(loss)
+        # training_box.update_params(loss)
+        training_box.optimizer.zero_grad()
+        loss.backward()
+        aux_loss = None
+        if isinstance(entropy_bottleneck_module, nn.Module) and entropy_bottleneck_module.training:
+            aux_loss = entropy_bottleneck_module.aux_loss()
+            aux_loss.backward()
+
         batch_size = len(sample_batch)
-        metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+
+        if aux_loss is None:
+            metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+        else:
+            metric_logger.update(loss=loss.item(), aux_loss=aux_loss.item(),
+                                 lr=training_box.optimizer.param_groups[0]['lr'])
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
 
 
@@ -129,8 +157,13 @@ def log_info(*args, **kwargs):
 @torch.no_grad()
 def evaluate(model, data_loader, device, device_ids, distributed, log_freq=1000, title=None, header='Test:'):
     model.to(device)
-    if distributed:
-        model = DistributedDataParallel(model, device_ids=device_ids)
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
+    if entropy_bottleneck_module is not None:
+        logger.info('Updating entropy bottleneck')
+        entropy_bottleneck_module.update()
+    else:
+        if distributed:
+            model = DistributedDataParallel(model, device_ids=device_ids)
 
     if title is not None:
         logger.info(title)
@@ -197,20 +230,22 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(student_model_without_ddp)
     start_time = time.time()
     for epoch in range(args.start_epoch, training_box.num_epochs):
         training_box.pre_process(epoch=epoch)
         train_one_epoch(training_box, device, epoch, log_freq)
-        val_coco_evaluator =\
-            evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                     log_freq=log_freq, header='Validation:')
-        # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
-        val_map = val_coco_evaluator.coco_eval['bbox'].stats[0]
-        if val_map > best_val_map and is_main_process():
-            logger.info('Updating ckpt (Best BBox mAP: {:.4f} -> {:.4f})'.format(best_val_map, val_map))
-            best_val_map = val_map
-            save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
-                      best_val_map, config, args, ckpt_file_path)
+        if entropy_bottleneck_module is None:
+            val_coco_evaluator =\
+                evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
+                         log_freq=log_freq, header='Validation:')
+            # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
+            val_map = val_coco_evaluator.coco_eval['bbox'].stats[0]
+            if val_map > best_val_map and is_main_process():
+                logger.info('Updating ckpt (Best BBox mAP: {:.4f} -> {:.4f})'.format(best_val_map, val_map))
+                best_val_map = val_map
+                save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
+                          best_val_map, config, args, ckpt_file_path)
         training_box.post_process()
 
     if distributed:
@@ -219,6 +254,9 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
+    if entropy_bottleneck_module is not None:
+        save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
+                  best_val_map, config, args, ckpt_file_path)
     training_box.clean_modules()
 
 
