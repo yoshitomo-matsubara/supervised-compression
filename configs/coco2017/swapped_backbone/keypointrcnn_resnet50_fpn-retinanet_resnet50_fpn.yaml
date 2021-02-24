@@ -25,7 +25,7 @@ models:
       num_classes: 2
       num_keypoints: 17
       pretrained_backbone: True
-    ckpt: !join ['./edited_ckpt/keypointrcnn_resnet50_fpn-retinanet_resnet50_fpn.pt']
+    ckpt: './resource/edited_ckpt/keypointrcnn_resnet50_fpn-retinanet_resnet50_fpn.pt'
 
 test:
   test_data_loader:

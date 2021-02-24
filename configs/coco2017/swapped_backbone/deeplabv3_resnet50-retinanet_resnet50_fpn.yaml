@@ -51,7 +51,7 @@ models:
       pretrained: True
       progress: True
       pretrained_backbone: True
-    ckpt: !join ['./edited_ckpt/deeplabv3_resnet50-retinanet_resnet50_fpn.pt']
+    ckpt: './resource/edited_ckpt/deeplabv3_resnet50-retinanet_resnet50_fpn.pt'
 
 test:
   test_data_loader:

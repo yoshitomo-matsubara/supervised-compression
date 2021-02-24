@@ -23,7 +23,7 @@ models:
       pretrained: True
       progress: True
       pretrained_backbone: True
-    ckpt: !join ['./edited_ckpt/retinanet_resnet50_fpn-keypointrcnn_resnet50_fpn.pt']
+    ckpt: './resource/edited_ckpt/retinanet_resnet50_fpn-keypointrcnn_resnet50_fpn.pt'
 
 test:
   test_data_loader:
