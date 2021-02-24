@@ -18,7 +18,7 @@ datasets:
 
 models:
   model:
-    name: &student_model_name 'tmp_retinanet_resnet50_fpn'
+    name: &student_model_name 'retinanet_resnet50_fpn'
     params:
       pretrained: False
       progress: True
