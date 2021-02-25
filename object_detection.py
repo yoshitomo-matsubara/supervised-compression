@@ -122,8 +122,8 @@ def train_one_epoch(training_box, device, epoch, log_freq):
             aux_loss = entropy_bottleneck_module.aux_loss()
             aux_loss.backward()
 
+        training_box.optimizer.step()
         batch_size = len(sample_batch)
-
         if aux_loss is None:
             metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
         else:
