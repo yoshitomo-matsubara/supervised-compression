@@ -1,14 +1,20 @@
 from collections import OrderedDict
 
 import torch
+from torchdistill.common import file_util, module_util
 from torchdistill.common.constant import def_logger
-from torchdistill.common import module_util
+
+from custom.model import BottleneckResNet
 
 logger = def_logger.getChild(__name__)
 
 
 def load_bottleneck_model_ckpt(model, ckpt_file_path):
-    if hasattr(model, 'backbone'):
+    if not file_util.check_if_exists(ckpt_file_path):
+        return False
+
+    # For classifier
+    if isinstance(model, BottleneckResNet):
         logger.info('Loading entropy bottleneck parameters')
         ckpt = torch.load(ckpt_file_path, map_location='cpu')
         model_ckpt = ckpt['model']
