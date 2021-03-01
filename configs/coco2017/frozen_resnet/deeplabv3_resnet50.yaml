@@ -11,7 +11,7 @@ datasets:
         annotated_only: True
         is_segment: True
         random_horizontal_flip: 0.5
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 260
@@ -36,7 +36,7 @@ datasets:
         annotations: !join [*root_dir, '/annotations/instances_val2017.json']
         annotated_only: False
         is_segment: True
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 520
@@ -46,13 +46,14 @@ datasets:
 
 models:
   model:
-    name: 'deeplabv3_resnet50'
+    name: &student_model_name 'deeplabv3_resnet50'
     params:
       pretrained: False
       progress: True
       pretrained_backbone: True
       aux_loss: True
-    ckpt: !join ['./coco/frozen_resnet/deeplabv3_resnet50.pt']
+    experiment: &student_experiment !join [*dataset_name, '-', *student_model_name]
+    ckpt: !join ['./resource/ckpt/coco2017/frozen_resnet/', *student_experiment, '.pt']
 
 train:
   log_freq: 1000
@@ -101,6 +102,7 @@ train:
       num_iterations: None
       num_epochs: *num_epochs
       factor: 0.9
+    scheduling_step: 1
   criterion:
     type: 'GeneralizedCustomLoss'
     func2extract_org_loss: 'extract_org_segment_loss'

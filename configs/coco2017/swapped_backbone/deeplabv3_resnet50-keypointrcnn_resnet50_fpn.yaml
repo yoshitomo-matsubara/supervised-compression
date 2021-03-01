@@ -36,7 +36,7 @@ datasets:
         annotations: !join [*root_dir, '/annotations/instances_val2017.json']
         annotated_only: False
         is_segment: True
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 520
@@ -51,7 +51,7 @@ models:
       pretrained: True
       progress: True
       pretrained_backbone: True
-    ckpt: !join ['./edited_ckpt/deeplabv3_resnet50-keypointrcnn_resnet50_fpn.pt']
+    ckpt: './resource/edited_ckpt/deeplabv3_resnet50-keypointrcnn_resnet50_fpn.pt'
 
 test:
   test_data_loader:

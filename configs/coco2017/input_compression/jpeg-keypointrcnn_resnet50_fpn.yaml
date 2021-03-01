@@ -4,12 +4,6 @@ datasets:
     type: 'cocodetect'
     root: &root_dir !join ['~/dataset/', *dataset_name]
     splits:
-      train:
-        dataset_id: &coco_train !join [*dataset_name, '/train']
-        images: !join [*root_dir, '/train2017']
-        annotations: !join [*root_dir, '/annotations/person_keypoints_train2017.json']
-        annotated_only: True
-        random_horizontal_flip: 0.5
       val:
         dataset_id: &coco_val !join [*dataset_name, '/val']
         images: !join [*root_dir, '/val2017']
@@ -18,14 +12,19 @@ datasets:
 
 models:
   model:
-    name: 'keypointrcnn_resnet50_fpn'
+    name: 'InputCompressionDetector'
     params:
-      pretrained: True
-      progress: True
-      num_classes: 2
-      num_keypoints: 17
-      pretrained_backbone: True
-    ckpt: './resource/edited_ckpt/keypointrcnn_resnet50_fpn-retinanet_resnet50_fpn.pt'
+      analysis_config:
+        mean_std_file_size: True
+      jpeg_quality: 90
+    compressor:
+    detector:
+      name: 'keypointrcnn_resnet50_fpn'
+      params:
+        pretrained: True
+        progress: True
+        pretrained_backbone: True
+      ckpt: ''
 
 test:
   test_data_loader:

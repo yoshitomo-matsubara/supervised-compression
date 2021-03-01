@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
+from torch import nn
 from torch.backends import cudnn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data._utils.collate import default_collate
@@ -27,6 +28,7 @@ from torchvision.models.detection.mask_rcnn import MaskRCNN
 
 from compression.registry import get_compression_model
 from custom.detector import InputCompressionDetector, get_custom_model
+from custom.util import load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
 
 logger = def_logger.getChild(__name__)
 
@@ -54,8 +56,11 @@ def load_model(model_config, device):
             repo_or_dir = model_config.get('repo_or_dir', None)
             model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
-        ckpt_file_path = model_config['ckpt']
-        load_ckpt(ckpt_file_path, model=model, strict=True)
+        model_ckpt_file_path = model_config['ckpt']
+        if load_bottleneck_model_ckpt(model, model_ckpt_file_path):
+            return model.to(device)
+
+        load_ckpt(model_ckpt_file_path, model=model, strict=True)
         return model.to(device)
 
     # Define compressor
@@ -71,6 +76,8 @@ def load_model(model_config, device):
             # Old parameter keys do not work with recent version of compressai
             state_dict = load_pretrained(state_dict)
             compressor.load_state_dict(state_dict)
+
+        logger.info('Updating compression model')
         compressor.update()
 
     # Define detector
@@ -86,7 +93,9 @@ def load_model(model_config, device):
     return custom_model.to(device)
 
 
-def train_one_epoch(training_box, device, epoch, log_freq):
+def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
+    model = training_box.student_model if hasattr(training_box, 'student_model') else training_box.model
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -98,9 +107,18 @@ def train_one_epoch(training_box, device, epoch, log_freq):
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         supp_dict = default_collate(supp_dict)
         loss = training_box(sample_batch, targets, supp_dict)
+        aux_loss = None
+        if isinstance(entropy_bottleneck_module, nn.Module) and not bottleneck_updated:
+            aux_loss = entropy_bottleneck_module.aux_loss()
+            aux_loss.backward()
+
         training_box.update_params(loss)
         batch_size = len(sample_batch)
-        metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+        if aux_loss is None:
+            metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+        else:
+            metric_logger.update(loss=loss.item(), aux_loss=aux_loss.item(),
+                                 lr=training_box.optimizer.param_groups[0]['lr'])
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
 
 
@@ -108,6 +126,9 @@ def get_iou_types(model):
     model_without_ddp = model
     if isinstance(model, DistributedDataParallel):
         model_without_ddp = model.module
+
+    if isinstance(model_without_ddp, InputCompressionDetector):
+        model_without_ddp = model_without_ddp.detector
 
     iou_type_list = ['bbox']
     if isinstance(model_without_ddp, MaskRCNN):
@@ -124,10 +145,18 @@ def log_info(*args, **kwargs):
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, device, device_ids, distributed, log_freq=1000, title=None, header='Test:'):
+def evaluate(model, data_loader, device, device_ids, distributed, bottleneck_updated=False,
+             log_freq=1000, title=None, header='Test:'):
     model.to(device)
-    if distributed:
-        model = DistributedDataParallel(model, device_ids=device_ids)
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
+    if entropy_bottleneck_module is not None:
+        entropy_bottleneck_module.file_size_list.clear()
+        if not bottleneck_updated:
+            logger.info('Updating entropy bottleneck')
+            entropy_bottleneck_module.update()
+    else:
+        if distributed:
+            model = DistributedDataParallel(model, device_ids=device_ids)
 
     if title is not None:
         logger.info(title)
@@ -194,20 +223,29 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
+    entropy_bottleneck_module = extract_entropy_bottleneck_module(student_model_without_ddp)
+    epoch_to_update = train_config.get('epoch_to_update', None)
+    bottleneck_updated = False
     start_time = time.time()
     for epoch in range(args.start_epoch, training_box.num_epochs):
         training_box.pre_process(epoch=epoch)
-        train_one_epoch(training_box, device, epoch, log_freq)
-        val_coco_evaluator =\
-            evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                     log_freq=log_freq, header='Validation:')
-        # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
-        val_map = val_coco_evaluator.coco_eval['bbox'].stats[0]
-        if val_map > best_val_map and is_main_process():
-            logger.info('Updating ckpt (Best BBox mAP: {:.4f} -> {:.4f})'.format(best_val_map, val_map))
-            best_val_map = val_map
-            save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
-                      best_val_map, config, args, ckpt_file_path)
+        if epoch_to_update is not None and epoch_to_update <= epoch and not bottleneck_updated:
+            logger.info('Updating entropy bottleneck')
+            student_model_without_ddp.backbone.body.bottleneck_layer.update()
+            bottleneck_updated = True
+
+        train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq)
+        if entropy_bottleneck_module is None or bottleneck_updated:
+            val_coco_evaluator =\
+                evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
+                         bottleneck_updated, log_freq=log_freq, header='Validation:')
+            # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
+            val_map = val_coco_evaluator.coco_eval['bbox'].stats[0]
+            if val_map > best_val_map and is_main_process():
+                logger.info('Updating ckpt (Best BBox mAP: {:.4f} -> {:.4f})'.format(best_val_map, val_map))
+                best_val_map = val_map
+                save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
+                          best_val_map, config, args, ckpt_file_path)
         training_box.post_process()
 
     if distributed:
@@ -216,6 +254,9 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
+    if entropy_bottleneck_module is not None:
+        save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
+                  best_val_map, config, args, ckpt_file_path)
     training_box.clean_modules()
 
 
@@ -223,12 +264,15 @@ def analyze_bottleneck_size(model):
     file_size_list = list()
     if isinstance(model, InputCompressionDetector):
         file_size_list = model.detector.transform.file_size_list
+    elif hasattr(model, 'backbone') and hasattr(model.backbone.body.backbone, 'bottleneck_layer'):
+        file_size_list = model.backbone.body.backbone.bottleneck_layer.file_size_list
 
     if len(file_size_list) == 0:
         return
 
     file_sizes = np.array(file_size_list)
-    logger.info('Bottleneck size [KB]: mean {} std {}'.format(file_sizes.mean(), file_sizes.std()))
+    logger.info('Bottleneck size [KB]: mean {} std {} for {} samples'.format(file_sizes.mean(), file_sizes.std(),
+                                                                             len(file_sizes)))
 
 
 def main(args):
@@ -260,9 +304,9 @@ def main(args):
     test_data_loader = util.build_data_loader(dataset_dict[test_data_loader_config['dataset_id']],
                                               test_data_loader_config, distributed)
     if not args.student_only and teacher_model is not None:
-        evaluate(teacher_model, test_data_loader, device, device_ids, distributed,
+        evaluate(teacher_model, test_data_loader, device, device_ids, distributed, bottleneck_updated=False,
                  title='[Teacher: {}]'.format(teacher_model_config['name']))
-    evaluate(student_model, test_data_loader, device, device_ids, distributed,
+    evaluate(student_model, test_data_loader, device, device_ids, distributed, bottleneck_updated=False,
              title='[Student: {}]'.format(student_model_config['name']))
     analyze_bottleneck_size(student_model)
 

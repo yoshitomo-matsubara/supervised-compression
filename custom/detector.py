@@ -6,7 +6,9 @@ from torch import nn, Tensor
 from torchdistill.common.file_util import get_binary_object_size
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
-from torchvision.transforms.functional import to_pil_image, to_tensor
+from torchvision.transforms.functional import to_pil_image, to_tensor, crop
+
+from custom.transform import AdaptivePad
 
 CUSTOM_DETECTOR_CLASS_DICT = dict()
 
@@ -16,41 +18,11 @@ def register_custom_classifier_class(cls):
     return cls
 
 
-class TransformWrapper(nn.Module):
-    def __init__(self, transform, compressor, analysis_config=None):
-        super().__init__()
-        self.org_transform = transform
-        self.compressor = compressor
-        self.analysis_config = analysis_config
-        self.file_size_list = list()
-
-    def analyze_compressed_object(self, compressed_obj):
-        # Analyze tensor size / file size, etc
-        if self.analysis_config.get('mean_std_file_size', False):
-            file_size = get_binary_object_size(compressed_obj)
-            self.file_size_list.append(file_size)
-
-    def compress_decompress(self, x):
-        compressed_obj = self.compressor.compress(x)
-        if not self.training and self.analysis_config is not None:
-            self.analyze_compressed_object(compressed_obj)
-        return self.compressor.decompress(compressed_obj)
-
-    def forward(self, images, targets):
-        images, targets = self.org_transform(images, targets)
-        if isinstance(images, ImageList):
-            images.tensors = self.compress_decompress(images.tensors)
-        else:
-            images = self.compress_decompress(images)
-        return images, targets
-
-    def postprocess(self, *args, **kwargs):
-        return self.org_transform.postprocess(*args, **kwargs)
-
-
-class JpegRCNNTransform(GeneralizedRCNNTransform):
-    def __init__(self, transform, analysis_config=None, jpeg_quality=None):
+class RCNNTransformWithCompression(GeneralizedRCNNTransform):
+    def __init__(self, transform, compressor=None, jpeg_quality=None, analysis_config=None, adaptive_pad_config=None):
         super().__init__(transform.min_size, transform.max_size, transform.image_mean, transform.image_std)
+        self.compressor = compressor
+        self.adaptive_pad = AdaptivePad(**adaptive_pad_config) if isinstance(adaptive_pad_config, dict) else None
         self.jpeg_quality = jpeg_quality
         self.analysis_config = analysis_config
         self.file_size_list = list()
@@ -70,6 +42,22 @@ class JpegRCNNTransform(GeneralizedRCNNTransform):
 
         pil_img = Image.open(img_buffer)
         return to_tensor(pil_img).to(org_img.device)
+
+    def compress_by_model(self, org_img):
+        org_img = org_img.unsqueeze(0)
+        padded_img, org_height, org_width = self.adaptive_pad(org_img)
+        compressed_obj = self.compressor.compress(padded_img)
+        if not self.training and self.analysis_config is not None:
+            self.analyze_compressed_object(compressed_obj)
+
+        decompressed_obj = self.compressor.decompress(compressed_obj)
+        decompressed_obj = crop(decompressed_obj, 0, 0, org_height, org_width)
+        return decompressed_obj.squeeze(0)
+
+    def compress(self, org_img):
+        if self.jpeg_quality is not None:
+            return self.jpeg_compress(org_img)
+        return self.compress_by_model(org_img)
 
     def forward(self,
                 images,       # type: List[Tensor]
@@ -97,7 +85,12 @@ class JpegRCNNTransform(GeneralizedRCNNTransform):
                 raise ValueError("images is expected to be a list of 3d tensors "
                                  "of shape [C, H, W], got {}".format(image.shape))
             image, target_index = self.resize(image, target_index)
-            image = self.jpeg_compress(image)
+            shape_before_compression = image.shape
+            image = self.compress(image)
+            shape_after_compression = image.shape
+            assert shape_after_compression == shape_before_compression, \
+                'Compression should not change tensor shape {} -> {}'.format(shape_before_compression,
+                                                                             shape_after_compression)
             image = self.normalize(image)
             images[i] = image
             if targets is not None and target_index is not None:
@@ -119,9 +112,8 @@ class InputCompressionDetector(nn.Module):
     def __init__(self, compressor, detector, analysis_config=None, **kwargs):
         super().__init__()
         self.detector = detector
-        self.detector.transform =\
-            JpegRCNNTransform(self.detector.transform, analysis_config, **kwargs) if 'jpeg_quality' in kwargs \
-                else TransformWrapper(self.detector.transform, compressor, analysis_config)
+        self.detector.transform = RCNNTransformWithCompression(self.detector.transform, compressor=compressor,
+                                                               analysis_config=analysis_config, **kwargs)
 
     def forward(self, *args):
         return self.detector(*args)

@@ -8,7 +8,7 @@ verify_ssl = true
 [packages]
 torch = ">=1.7.1"
 torchvision = ">=0.8.2"
-torchdistill = ">=0.1.3"
+torchdistill = ">=0.1.4"
 compressai = "==1.1.1b5"
 
 [requires]

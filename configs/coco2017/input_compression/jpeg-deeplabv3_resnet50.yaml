@@ -11,7 +11,7 @@ datasets:
         annotated_only: True
         is_segment: True
         random_horizontal_flip: 0.5
-        transform_params:
+        transforms_params:
           - type: 'CustomRandomResize'
             params:
               min_size: 260
@@ -23,8 +23,9 @@ datasets:
             params:
               size: 480
           - &totensor
-            type: 'CustomToTensor'
+            type: 'CustomJpegToTensor'
             params:
+              jpeg_quality: 100
           - &normalize
             type: 'CustomNormalize'
             params:
@@ -51,7 +52,7 @@ models:
       pretrained: True
       progress: True
       pretrained_backbone: True
-    ckpt: './resource/edited_ckpt/deeplabv3_resnet50-retinanet_resnet50_fpn.pt'
+    ckpt: ''
 
 test:
   test_data_loader:
