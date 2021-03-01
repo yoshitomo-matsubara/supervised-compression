@@ -264,7 +264,8 @@ def analyze_bottleneck_size(model):
     file_size_list = list()
     if isinstance(model, InputCompressionDetector):
         file_size_list = model.detector.transform.file_size_list
-    elif hasattr(model, 'backbone') and hasattr(model.backbone.body.backbone, 'bottleneck_layer'):
+    elif hasattr(model, 'backbone') and hasattr(model.backbone.body, 'backbone') and \
+            hasattr(model.backbone.body.backbone, 'bottleneck_layer'):
         file_size_list = model.backbone.body.backbone.bottleneck_layer.file_size_list
 
     if len(file_size_list) == 0:
