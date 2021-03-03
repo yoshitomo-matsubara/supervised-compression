@@ -74,6 +74,7 @@ train:
   model:
     adaptations:
     sequential: []
+    frozen_modules: ['backbone']
     forward_hook:
       input: []
       output: []
