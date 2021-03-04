@@ -1,9 +1,9 @@
 from collections import OrderedDict
 
 import torch
+from torch import nn
 from torchdistill.common import file_util, module_util
 from torchdistill.common.constant import def_logger
-
 
 logger = def_logger.getChild(__name__)
 
@@ -64,7 +64,8 @@ def load_bottleneck_model_ckpt(model, ckpt_file_path):
 
 def extract_entropy_bottleneck_module(model):
     model_wo_ddp = model.module if module_util.check_if_wrapped(model) else model
-    if hasattr(model_wo_ddp, 'bottleneck'):
+    if check_if_module_exits(model_wo_ddp, 'bottleneck.compressor')\
+            and isinstance(model_wo_ddp.bottleneck.compressor, nn.Module):
         entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'bottleneck.compressor')
         return entropy_bottleneck_module
     elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_layer'):

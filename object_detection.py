@@ -28,9 +28,10 @@ from torchvision.models.detection.mask_rcnn import MaskRCNN
 
 from compression.registry import get_compression_model
 from custom.detector import InputCompressionDetector, get_custom_model
-from custom.util import load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
+from custom.util import check_if_module_exits, load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
 
 logger = def_logger.getChild(__name__)
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 def get_argparser():
@@ -264,9 +265,10 @@ def analyze_bottleneck_size(model):
     file_size_list = list()
     if isinstance(model, InputCompressionDetector):
         file_size_list = model.detector.transform.file_size_list
-    elif hasattr(model, 'backbone') and hasattr(model.backbone.body, 'backbone') and \
-            hasattr(model.backbone.body.backbone, 'bottleneck_layer'):
-        file_size_list = model.backbone.body.backbone.bottleneck_layer.file_size_list
+    elif check_if_module_exits(model, 'backbone.body.layer1.compressor'):
+        file_size_list = model.bottleneck.compressor.file_size_list
+    elif check_if_module_exits(model, 'backbone.body.bottleneck_layer'):
+        file_size_list = model.backbone.body.bottleneck_layer.file_size_list
 
     if len(file_size_list) == 0:
         return
