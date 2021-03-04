@@ -265,8 +265,9 @@ def analyze_bottleneck_size(model):
     file_size_list = list()
     if isinstance(model, InputCompressionDetector):
         file_size_list = model.detector.transform.file_size_list
-    elif check_if_module_exits(model, 'backbone.body.layer1.compressor'):
-        file_size_list = model.bottleneck.compressor.file_size_list
+    elif check_if_module_exits(model, 'backbone.body.layer1.compressor')\
+            and model.backbone.body.layer1.compressor is not None:
+        file_size_list = model.backbone.body.layer1.compressor.file_size_list
     elif check_if_module_exits(model, 'backbone.body.bottleneck_layer'):
         file_size_list = model.backbone.body.bottleneck_layer.file_size_list
 

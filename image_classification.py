@@ -209,7 +209,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
 def analyze_bottleneck_size(model):
     file_size_list = list()
-    if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
+    if check_if_module_exits(model, 'bottleneck.compressor') and isinstance(model.bottleneck, BottleneckBase):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionClassifier):
         file_size_list = model.file_size_list
