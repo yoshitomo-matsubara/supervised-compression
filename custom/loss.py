@@ -42,7 +42,12 @@ class BppBasedLoss(nn.Module):
         reconstruction_loss = self.mse(reconstructed_inputs, compressor_inputs)
         n, _, h, w = compressor_inputs.shape
         num_pixels = n * h * w
-        bpp = -likelihoods.log2().sum() if self.reduction == 'sum' else -likelihoods.log2().sum() / num_pixels
+        if self.reduction == 'sum':
+            bpp = -likelihoods.log2().sum()
+        elif self.reduction == 'batchmean':
+            bpp = -likelihoods.log2().sum() / n
+        else:
+            bpp = -likelihoods.log2().sum() / num_pixels
         return reconstruction_loss + self.beta * bpp
 
 

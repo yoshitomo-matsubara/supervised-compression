@@ -24,9 +24,10 @@ from torchdistill.models.registry import get_model
 from compression.registry import get_compression_model
 from custom.classifier import InputCompressionClassifier, get_custom_model
 from custom.misc import CustomDataParallel, CustomDistributedDataParallel
-from custom.util import load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
+from custom.util import check_if_module_exits, load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
 
 logger = def_logger.getChild(__name__)
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 def get_argparser():
@@ -208,11 +209,13 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
 def analyze_bottleneck_size(model):
     file_size_list = list()
-    if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
+    if check_if_module_exits(model, 'bottleneck.compressor') and isinstance(model.bottleneck, BottleneckBase):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionClassifier):
         file_size_list = model.file_size_list
-    elif hasattr(model, 'backbone') and hasattr(model.backbone, 'bottleneck_layer'):
+    elif check_if_module_exits(model, 'bottleneck.compressor'):
+        file_size_list = model.bottleneck.compressor.file_size_list
+    elif check_if_module_exits(model, 'backbone.bottleneck_layer'):
         file_size_list = model.backbone.bottleneck_layer.file_size_list
 
     if len(file_size_list) == 0:
