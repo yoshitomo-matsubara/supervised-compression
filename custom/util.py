@@ -68,7 +68,13 @@ def extract_entropy_bottleneck_module(model):
             and isinstance(model_wo_ddp.bottleneck.compressor, nn.Module):
         entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'bottleneck.compressor')
         return entropy_bottleneck_module
-    elif hasattr(model_wo_ddp, 'backbone') and hasattr(model_wo_ddp.backbone, 'bottleneck_layer'):
+    elif check_if_module_exits(model_wo_ddp, 'backbone.bottleneck_layer'):
         entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.bottleneck_layer')
+        return entropy_bottleneck_module
+    elif check_if_module_exits(model_wo_ddp, 'backbone.body.bottleneck_layer'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'backbone.body.bottleneck_layer')
+        return entropy_bottleneck_module
+    elif check_if_module_exits(model_wo_ddp, 'seq.backbone.body.bottleneck_layer'):
+        entropy_bottleneck_module = module_util.get_module(model_wo_ddp, 'seq.backbone.body.bottleneck_layer')
         return entropy_bottleneck_module
     return None
