@@ -152,5 +152,5 @@ class MiddleCompressionModel(BaseCompressionModel):
 
 @register_compression_model_func
 def toy_example(entropy_bottleneck_channels):
-    model = ImageCompressionModel(entropy_bottleneck_channels)
+    model = FactorizedPriorAE(entropy_bottleneck_channels)
     return model
