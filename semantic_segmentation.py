@@ -248,7 +248,7 @@ def analyze_bottleneck_size(model):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionSegmenter):
         file_size_list = model.file_size_list
-    elif check_if_module_exits(model, 'backbone.layer1.compressor'):
+    elif check_if_module_exits(model, 'backbone.layer1.compressor') and model.backbone.layer1.compressor is not None:
         file_size_list = model.backbone.layer1.compressor.file_size_list
     elif check_if_module_exits(model, 'backbone.bottleneck_layer'):
         file_size_list = model.backbone.bottleneck_layer.file_size_list
