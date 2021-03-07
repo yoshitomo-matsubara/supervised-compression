@@ -204,7 +204,8 @@ class BottleneckResNetLayer(BaseCustomBottleneckModel):
                       kernel_size=2, stride=1, padding=0, bias=False)
         )
         self.decoder = nn.Sequential(
-            nn.Conv2d(num_third_output_channels, num_target_channels * 2, kernel_size=2, stride=1, padding=1, bias=False),
+            nn.Conv2d(num_third_output_channels, num_target_channels * 2,
+                      kernel_size=2, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(num_target_channels * 2), nn.ReLU(inplace=True),
             nn.Conv2d(num_target_channels * 2, num_target_channels, kernel_size=2, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(num_target_channels), nn.ReLU(inplace=True),

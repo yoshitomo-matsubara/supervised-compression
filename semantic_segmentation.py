@@ -55,11 +55,26 @@ def customize_config(config, dataset_dict, world_size):
         return
 
     train_config = config['train']
-    train_data_loader_config = train_config['train_data_loader']
-    num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
-                               train_data_loader_config['batch_size'] / world_size)
-    if 'scheduler' in train_config and train_config['scheduler']['type'] == 'custom_lambda_lr':
-        train_config['scheduler']['params']['num_iterations'] = num_iterations
+    if 'stage1' not in train_config:
+        train_data_loader_config = train_config['train_data_loader']
+        num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
+                                   train_data_loader_config['batch_size'] / world_size)
+        if 'scheduler' in train_config and train_config['scheduler']['type'] == 'custom_lambda_lr':
+            train_config['scheduler']['params']['num_iterations'] = num_iterations
+    else:
+        for i in range(1, 1000000):
+            stage_name = 'stage{}'.format(i)
+            if stage_name not in train_config:
+                break
+            stage_train_config = train_config[stage_name]
+            if 'train_data_loader' not in stage_train_config:
+                continue
+
+            train_data_loader_config = stage_train_config['train_data_loader']
+            num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
+                                       train_data_loader_config['batch_size'] / world_size)
+            if 'scheduler' in stage_train_config and stage_train_config['scheduler']['type'] == 'custom_lambda_lr':
+                stage_train_config['scheduler']['params']['num_iterations'] = num_iterations
 
 
 def load_model(model_config, device):
@@ -197,7 +212,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
         training_box.pre_process(epoch=epoch)
         if epoch_to_update is not None and epoch_to_update <= epoch and not bottleneck_updated:
             logger.info('Updating entropy bottleneck')
-            student_model_without_ddp.update()
+            student_model_without_ddp.backbone.bottleneck_layer.update()
             bottleneck_updated = True
 
         train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq)
@@ -233,7 +248,7 @@ def analyze_bottleneck_size(model):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionSegmenter):
         file_size_list = model.file_size_list
-    elif check_if_module_exits(model, 'backbone.layer1.compressor'):
+    elif check_if_module_exits(model, 'backbone.layer1.compressor') and model.backbone.layer1.compressor is not None:
         file_size_list = model.backbone.layer1.compressor.file_size_list
     elif check_if_module_exits(model, 'backbone.bottleneck_layer'):
         file_size_list = model.backbone.bottleneck_layer.file_size_list
