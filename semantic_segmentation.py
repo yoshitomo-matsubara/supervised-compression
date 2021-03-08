@@ -66,6 +66,7 @@ def customize_config(config, dataset_dict, world_size):
             stage_name = 'stage{}'.format(i)
             if stage_name not in train_config:
                 break
+
             stage_train_config = train_config[stage_name]
             if 'train_data_loader' not in stage_train_config:
                 continue
@@ -164,9 +165,6 @@ def evaluate(model, data_loader, device, device_ids, distributed, num_classes, b
     if title is not None:
         logger.info(title)
 
-    n_threads = torch.get_num_threads()
-    # FIXME remove this and make paste_masks_in_image run on the GPU
-    torch.set_num_threads(1)
     model.eval()
     metric_logger = MetricLogger(delimiter='  ')
     seg_evaluator = SegEvaluator(num_classes)
@@ -185,7 +183,6 @@ def evaluate(model, data_loader, device, device_ids, distributed, num_classes, b
     # gather the stats from all processes
     seg_evaluator.reduce_from_all_processes()
     logger.info(seg_evaluator)
-    torch.set_num_threads(n_threads)
     return seg_evaluator
 
 
@@ -219,7 +216,8 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
         if entropy_bottleneck_module is None or bottleneck_updated:
             val_seg_evaluator = \
                 evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                         num_classes=args.num_classes, log_freq=log_freq, header='Validation:')
+                         num_classes=args.num_classes, bottleneck_updated=bottleneck_updated,
+                         log_freq=log_freq, header='Validation:')
 
             val_acc_global, val_acc, val_iou = val_seg_evaluator.compute()
             val_miou = val_iou.mean().item()
