@@ -1,7 +1,9 @@
 import argparse
 import builtins as __builtin__
 import datetime
+import math
 import os
+import sys
 import time
 
 import numpy as np
@@ -47,6 +49,8 @@ def get_argparser():
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('-adjust_lr', action='store_true',
                         help='multiply learning rate by number of distributed processes (world_size)')
+    parser.add_argument('-warm_up', action='store_true',
+                        help='use warm up strategy for the first epoch')
     return parser
 
 
@@ -94,13 +98,26 @@ def load_model(model_config, device):
     return custom_model.to(device)
 
 
-def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
+def train_one_epoch(training_box, bottleneck_updated, warms_up, device, epoch, log_freq):
     model = training_box.student_model if hasattr(training_box, 'student_model') else training_box.model
     entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
     header = 'Epoch: [{}]'.format(epoch)
+    warm_up_lr_scheduler = None
+    if warms_up and epoch == 0:
+        logger.info('Setting up warm up lr scheduler')
+        warmup_factor = 1.0 / 1000
+        warmup_iters = min(1000, len(training_box.train_data_loader) - 1)
+
+        def f(x):
+            if x >= warmup_iters:
+                return 1
+            alpha = float(x) / warmup_iters
+            return warmup_factor * (1 - alpha) + alpha
+        warm_up_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(training_box.optimizer, f)
+
     for sample_batch, targets, supp_dict in \
             metric_logger.log_every(training_box.train_data_loader, log_freq, header):
         start_time = time.time()
@@ -114,11 +131,22 @@ def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
             aux_loss.backward()
 
         training_box.update_params(loss)
+        if warm_up_lr_scheduler is not None:
+            warm_up_lr_scheduler.step()
+
         batch_size = len(sample_batch)
+        loss_value = loss.item()
         if aux_loss is None:
-            metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
+            if not math.isfinite(loss_value):
+                logger.info('Loss is {}, stopping training'.format(loss_value))
+                sys.exit(1)
+            metric_logger.update(loss=loss_value, lr=training_box.optimizer.param_groups[0]['lr'])
         else:
-            metric_logger.update(loss=loss.item(), aux_loss=aux_loss.item(),
+            aux_loss_value = aux_loss.item()
+            if not math.isfinite(aux_loss_value):
+                logger.info('Aux loss is {}, stopping training'.format(aux_loss_value))
+                sys.exit(1)
+            metric_logger.update(loss=loss_value, aux_loss=aux_loss_value,
                                  lr=training_box.optimizer.param_groups[0]['lr'])
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
 
@@ -227,6 +255,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     entropy_bottleneck_module = extract_entropy_bottleneck_module(student_model_without_ddp)
     epoch_to_update = train_config.get('epoch_to_update', None)
     bottleneck_updated = False
+    warms_up = args.warm_up
     start_time = time.time()
     for epoch in range(args.start_epoch, training_box.num_epochs):
         training_box.pre_process(epoch=epoch)
@@ -235,7 +264,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
             student_model_without_ddp.backbone.body.bottleneck_layer.update()
             bottleneck_updated = True
 
-        train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq)
+        train_one_epoch(training_box, bottleneck_updated, warms_up, device, epoch, log_freq)
         if entropy_bottleneck_module is None or bottleneck_updated:
             val_coco_evaluator =\
                 evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
