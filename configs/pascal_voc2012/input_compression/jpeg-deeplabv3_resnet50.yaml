@@ -1,0 +1,50 @@
+datasets:
+  pascal_voc:
+    name: &dataset_name 'VOC2012'
+    type: 'VOCSegmentation'
+    root: &root_dir '~/dataset/'
+    splits:
+      val:
+        dataset_id: &pascal_voc2012_val !join [*dataset_name, '/val']
+        params:
+          root: *root_dir
+          image_set: 'val'
+          year: '2012'
+          download: False
+          transforms_compose_cls: 'CustomCompose'
+          transforms_params: &val_transform
+            - type: 'CustomRandomResize'
+              params:
+                min_size: 520
+                max_size: 520
+            - type: 'CustomJpegToTensor'
+              params:
+                jpeg_quality: 100
+            - type: 'CustomNormalize'
+              params:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+      test:
+        dataset_id: &pascal_voc2012_test !join [*dataset_name, '/test']
+        params:
+          root: *root_dir
+          image_set: 'val'
+          year: '2012'
+          download: False
+          transforms_compose_cls: 'CustomCompose'
+          transforms_params: *val_transform
+
+models:
+  model:
+    name: 'deeplabv3_resnet50'
+    params:
+      pretrained: True
+      num_classes: 21
+    ckpt: ''
+
+test:
+  test_data_loader:
+    dataset_id: *pascal_voc2012_test
+    random_sample: False
+    batch_size: 1
+    num_workers: 16

@@ -8,8 +8,8 @@ verify_ssl = true
 [packages]
 torch = ">=1.7.1"
 torchvision = ">=0.8.2"
-torchdistill = ">=0.1.1"
-compressai = {editable = true, git = "https://github.com/InterDigitalInc/CompressAI", ref = "ab6a7af51d10f344026e68f89f3f91d2f0c9da56"}
+torchdistill = ">=0.1.4"
+compressai = "==1.1.1b5"
 
 [requires]
 python_version = "3.8"

@@ -1,6 +1,6 @@
 import torch.nn as nn
 from compressai.layers import GDN1
-from compressai.models import CompressionModel
+from compressai.models import CompressionModel, MeanScaleHyperprior
 from torchdistill.common.file_util import get_binary_object_size
 from torchdistill.models.custom.bottleneck.processor import register_bottleneck_processor
 from torchvision.transforms import functional
@@ -20,7 +20,7 @@ class BaseCompressionModel(CompressionModel):
 
 
 @register_compression_model_class
-class ImageCompressionModel(BaseCompressionModel):
+class FactorizedPriorAE(BaseCompressionModel):
     """Simple autoencoder with a factorized prior """
     def __init__(self, entropy_bottleneck_channels=128):
         super().__init__(entropy_bottleneck_channels=entropy_bottleneck_channels)
@@ -60,6 +60,28 @@ class ImageCompressionModel(BaseCompressionModel):
         y_hat, y_likelihoods = self.entropy_bottleneck(y)
         x_hat = self.decoder(y_hat)
         return x_hat, y_likelihoods
+
+
+@register_compression_model_class
+class HierarchicalPriorAE(MeanScaleHyperprior):
+    """Simple autoencoder with a hierarchical prior """
+    def __init__(self, N=128, M=192):
+        super().__init__(N, M)
+
+    def forward(self, x):
+        output = super().forward(x)
+        return output['x_hat'], output['likelihoods']['y'], output['likelihoods']['z']
+
+    def compress(self, x):
+        dic = super().compress(x)
+        strings = dic['strings']
+        shape = dic['shape']
+        return strings, shape
+
+    def decompress(self, compressed_obj, **kwargs):
+        strings, shape = compressed_obj
+        dic = super().decompress(strings, shape)
+        return dic['x_hat']
 
 
 @register_compression_model_class
@@ -130,5 +152,5 @@ class MiddleCompressionModel(BaseCompressionModel):
 
 @register_compression_model_func
 def toy_example(entropy_bottleneck_channels):
-    model = ImageCompressionModel(entropy_bottleneck_channels)
+    model = FactorizedPriorAE(entropy_bottleneck_channels)
     return model

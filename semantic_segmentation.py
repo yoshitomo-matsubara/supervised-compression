@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import math
 import os
 import time
 
@@ -9,21 +10,23 @@ from compressai.zoo.pretrained import load_pretrained
 from torch import distributed as dist
 from torch import nn
 from torch.backends import cudnn
-from torchdistill.common import yaml_util, module_util
+from torch.nn import DataParallel
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data._utils.collate import default_collate
+from torchdistill.common import file_util, module_util, yaml_util
 from torchdistill.common.constant import def_logger
 from torchdistill.common.main_util import is_main_process, init_distributed_mode, load_ckpt, save_ckpt
 from torchdistill.core.distillation import get_distillation_box
 from torchdistill.core.training import get_training_box
 from torchdistill.datasets import util
-from torchdistill.eval.classification import compute_accuracy
+from torchdistill.eval.coco import SegEvaluator
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
 from torchdistill.models.custom.bottleneck.base import BottleneckBase
-from torchdistill.models.official import get_image_classification_model
+from torchdistill.models.official import get_semantic_segmentation_model
 from torchdistill.models.registry import get_model
 
 from compression.registry import get_compression_model
-from custom.classifier import InputCompressionClassifier, get_custom_model
-from custom.misc import CustomDataParallel, CustomDistributedDataParallel
+from custom.segmenter import InputCompressionSegmenter, get_custom_model
 from custom.util import check_if_module_exits, load_bottleneck_model_ckpt, extract_entropy_bottleneck_module
 
 logger = def_logger.getChild(__name__)
@@ -31,12 +34,12 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 def get_argparser():
-    parser = argparse.ArgumentParser(description='Knowledge distillation for image classification models')
+    parser = argparse.ArgumentParser(description='Knowledge distillation for semantic segmentation models')
     parser.add_argument('--config', required=True, help='yaml file path')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('--log', help='log file path')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('-sync_bn', action='store_true', help='Use sync batch norm')
+    parser.add_argument('--num_classes', default=21, type=int, metavar='N', help='number of classes for evaluation')
     parser.add_argument('-test_only', action='store_true', help='Only test the models')
     parser.add_argument('-student_only', action='store_true', help='Test the student model only')
     # distributed training parameters
@@ -47,21 +50,45 @@ def get_argparser():
     return parser
 
 
-def load_model(model_config, device, distributed, sync_bn):
+def customize_config(config, dataset_dict, world_size):
+    if 'train' not in config:
+        return
+
+    train_config = config['train']
+    if 'stage1' not in train_config:
+        train_data_loader_config = train_config['train_data_loader']
+        num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
+                                   train_data_loader_config['batch_size'] / world_size)
+        if 'scheduler' in train_config and train_config['scheduler']['type'] == 'custom_lambda_lr':
+            train_config['scheduler']['params']['num_iterations'] = num_iterations
+    else:
+        for i in range(1, 1000000):
+            stage_name = 'stage{}'.format(i)
+            if stage_name not in train_config:
+                break
+            stage_train_config = train_config[stage_name]
+            if 'train_data_loader' not in stage_train_config:
+                continue
+
+            train_data_loader_config = stage_train_config['train_data_loader']
+            num_iterations = math.ceil(len(dataset_dict[train_data_loader_config['dataset_id']]) /
+                                       train_data_loader_config['batch_size'] / world_size)
+            if 'scheduler' in stage_train_config and stage_train_config['scheduler']['type'] == 'custom_lambda_lr':
+                stage_train_config['scheduler']['params']['num_iterations'] = num_iterations
+
+
+def load_model(model_config, device):
     if 'compressor' not in model_config:
-        model = get_image_classification_model(model_config, distributed, sync_bn)
+        model = get_semantic_segmentation_model(model_config)
         if model is None:
             repo_or_dir = model_config.get('repo_or_dir', None)
             model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
         model_ckpt_file_path = model_config['ckpt']
-        if not os.path.isfile(model_ckpt_file_path) and 'start_ckpt' in model_config:
-            model_ckpt_file_path = model_config['start_ckpt']
-
         if load_bottleneck_model_ckpt(model, model_ckpt_file_path):
             return model.to(device)
 
-        load_ckpt(model_ckpt_file_path, model=model, strict=False)
+        load_ckpt(model_ckpt_file_path, model=model, strict=True)
         return model.to(device)
 
     # Define compressor
@@ -77,16 +104,16 @@ def load_model(model_config, device, distributed, sync_bn):
 
     logger.info('Updating compression model')
     compressor.update()
-    # Define classifier
-    classifier_config = model_config['classifier']
-    classifier = get_image_classification_model(classifier_config, distributed, sync_bn)
-    if classifier is None:
-        repo_or_dir = classifier_config.get('repo_or_dir', None)
-        classifier = get_model(classifier_config['name'], repo_or_dir, **classifier_config['params'])
+    # Define segmenter
+    segmenter_config = model_config['segmenter']
+    segmenter = get_semantic_segmentation_model(segmenter_config)
+    if segmenter is None:
+        repo_or_dir = segmenter_config.get('repo_or_dir', None)
+        segmenter = get_model(segmenter_config['name'], repo_or_dir, **segmenter_config['params'])
 
-    classifier_ckpt_file_path = classifier_config['ckpt']
-    load_ckpt(classifier_ckpt_file_path, model=classifier, strict=True)
-    custom_model = get_custom_model(model_config['name'], compressor, classifier, **model_config['params'])
+    segmenter_ckpt_file_path = segmenter_config['ckpt']
+    load_ckpt(segmenter_ckpt_file_path, model=segmenter, strict=True)
+    custom_model = get_custom_model(model_config['name'], compressor, segmenter, **model_config['params'])
     return custom_model.to(device)
 
 
@@ -101,6 +128,7 @@ def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
             metric_logger.log_every(training_box.train_data_loader, log_freq, header):
         start_time = time.time()
         sample_batch, targets = sample_batch.to(device), targets.to(device)
+        supp_dict = default_collate(supp_dict)
         loss = training_box(sample_batch, targets, supp_dict)
         aux_loss = None
         if isinstance(entropy_bottleneck_module, nn.Module) and not bottleneck_updated:
@@ -108,7 +136,7 @@ def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
             aux_loss.backward()
 
         training_box.update_params(loss)
-        batch_size = sample_batch.shape[0]
+        batch_size = len(sample_batch)
         if aux_loss is None:
             metric_logger.update(loss=loss.item(), lr=training_box.optimizer.param_groups[0]['lr'])
         else:
@@ -118,7 +146,7 @@ def train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq):
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, device, device_ids, distributed, bottleneck_updated=False,
+def evaluate(model, data_loader, device, device_ids, distributed, num_classes, bottleneck_updated=False,
              log_freq=1000, title=None, header='Test:'):
     model.to(device)
     entropy_bottleneck_module = extract_entropy_bottleneck_module(model)
@@ -129,35 +157,36 @@ def evaluate(model, data_loader, device, device_ids, distributed, bottleneck_upd
             entropy_bottleneck_module.update()
     else:
         if distributed:
-            model = CustomDistributedDataParallel(model, device_ids=device_ids)
+            model = DistributedDataParallel(model, device_ids=device_ids)
         elif device.type.startswith('cuda'):
-            model = CustomDataParallel(model, device_ids=device_ids)
+            model = DataParallel(model, device_ids=device_ids)
 
     if title is not None:
         logger.info(title)
 
-    num_threads = torch.get_num_threads()
+    n_threads = torch.get_num_threads()
+    # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
     model.eval()
     metric_logger = MetricLogger(delimiter='  ')
-    for image, target in metric_logger.log_every(data_loader, log_freq, header):
-        image = image.to(device, non_blocking=True)
-        target = target.to(device, non_blocking=True)
-        output = model(image)
-        acc1, acc5 = compute_accuracy(output, target, topk=(1, 5))
-        # FIXME need to take into account that the datasets
-        # could have been padded in distributed setup
-        batch_size = image.shape[0]
-        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
-        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+    seg_evaluator = SegEvaluator(num_classes)
+    for sample_batch, targets in metric_logger.log_every(data_loader, log_freq, header):
+        sample_batch, targets = sample_batch.to(device), targets.to(device)
+        torch.cuda.synchronize()
+        model_time = time.time()
+        outputs = model(sample_batch)
+        model_time = time.time() - model_time
+        outputs = outputs['out']
+        evaluator_time = time.time()
+        seg_evaluator.update(targets.flatten(), outputs.argmax(1).flatten())
+        evaluator_time = time.time() - evaluator_time
+        metric_logger.update(model_time=model_time, evaluator_time=evaluator_time)
 
     # gather the stats from all processes
-    metric_logger.synchronize_between_processes()
-    top1_accuracy = metric_logger.acc1.global_avg
-    top5_accuracy = metric_logger.acc5.global_avg
-    logger.info(' * Acc@1 {:.4f}\tAcc@5 {:.4f}\n'.format(top1_accuracy, top5_accuracy))
-    torch.set_num_threads(num_threads)
-    return metric_logger.acc1.global_avg
+    seg_evaluator.reduce_from_all_processes()
+    logger.info(seg_evaluator)
+    torch.set_num_threads(n_threads)
+    return seg_evaluator
 
 
 def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args):
@@ -168,8 +197,11 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
                                     device, device_ids, distributed, lr_factor) if teacher_model is None \
         else get_distillation_box(teacher_model, student_model, dataset_dict, train_config,
                                   device, device_ids, distributed, lr_factor)
-    best_val_top1_accuracy = 0.0
+    best_val_miou = 0.0
     optimizer, lr_scheduler = training_box.optimizer, training_box.lr_scheduler
+    if file_util.check_if_exists(ckpt_file_path):
+        best_val_miou, _, _ = load_ckpt(ckpt_file_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
+
     log_freq = train_config['log_freq']
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
     entropy_bottleneck_module = extract_entropy_bottleneck_module(student_model_without_ddp)
@@ -180,19 +212,22 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
         training_box.pre_process(epoch=epoch)
         if epoch_to_update is not None and epoch_to_update <= epoch and not bottleneck_updated:
             logger.info('Updating entropy bottleneck')
-            student_model_without_ddp.update()
+            student_model_without_ddp.backbone.bottleneck_layer.update()
             bottleneck_updated = True
 
         train_one_epoch(training_box, bottleneck_updated, device, epoch, log_freq)
         if entropy_bottleneck_module is None or bottleneck_updated:
-            val_top1_accuracy = evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                                         bottleneck_updated, log_freq=log_freq, header='Validation:')
-            if val_top1_accuracy > best_val_top1_accuracy and is_main_process():
-                logger.info('Updating ckpt (Best top1 accuracy: '
-                            '{:.4f} -> {:.4f})'.format(best_val_top1_accuracy, val_top1_accuracy))
-                best_val_top1_accuracy = val_top1_accuracy
+            val_seg_evaluator = \
+                evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
+                         num_classes=args.num_classes, log_freq=log_freq, header='Validation:')
+
+            val_acc_global, val_acc, val_iou = val_seg_evaluator.compute()
+            val_miou = val_iou.mean().item()
+            if val_miou > best_val_miou and is_main_process():
+                logger.info('Updating ckpt (Best mIoU: {:.4f} -> {:.4f})'.format(best_val_miou, val_miou))
+                best_val_miou = val_miou
                 save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
-                          best_val_top1_accuracy, config, args, ckpt_file_path)
+                          best_val_miou, config, args, ckpt_file_path)
         training_box.post_process()
 
     if distributed:
@@ -203,18 +238,18 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     logger.info('Training time {}'.format(total_time_str))
     if entropy_bottleneck_module is not None:
         save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
-                  best_val_top1_accuracy, config, args, ckpt_file_path)
+                  best_val_miou, config, args, ckpt_file_path)
     training_box.clean_modules()
 
 
 def analyze_bottleneck_size(model):
     file_size_list = list()
-    if check_if_module_exits(model, 'bottleneck.compressor') and isinstance(model.bottleneck, BottleneckBase):
+    if hasattr(model, 'bottleneck') and isinstance(model.bottleneck, BottleneckBase):
         file_size_list = model.bottleneck.compressor.file_size_list
-    elif isinstance(model, InputCompressionClassifier):
+    elif isinstance(model, InputCompressionSegmenter):
         file_size_list = model.file_size_list
-    elif check_if_module_exits(model, 'bottleneck.compressor'):
-        file_size_list = model.bottleneck.compressor.file_size_list
+    elif check_if_module_exits(model, 'backbone.layer1.compressor') and model.backbone.layer1.compressor is not None:
+        file_size_list = model.backbone.layer1.compressor.file_size_list
     elif check_if_module_exits(model, 'backbone.bottleneck_layer'):
         file_size_list = model.backbone.bottleneck_layer.file_size_list
 
@@ -231,19 +266,28 @@ def main(args):
     if is_main_process() and log_file_path is not None:
         setup_log_file(os.path.expanduser(log_file_path))
 
-    distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    world_size = args.world_size
+    distributed, device_ids = init_distributed_mode(world_size, args.dist_url)
     logger.info(args)
     cudnn.benchmark = True
     config = yaml_util.load_yaml_file(os.path.expanduser(args.config))
     device = torch.device(args.device)
     dataset_dict = util.get_all_dataset(config['datasets'])
+    # Update config with dataset size len(data_loader)
+    customize_config(config, dataset_dict, world_size)
+
     models_config = config['models']
     teacher_model_config = models_config.get('teacher_model', None)
-    teacher_model =\
-        load_model(teacher_model_config, device, distributed, False) if teacher_model_config is not None else None
+    teacher_model = load_model(teacher_model_config, device) if teacher_model_config is not None else None
     student_model_config =\
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
-    student_model = load_model(student_model_config, device, distributed, args.sync_bn)
+    student_model = load_model(student_model_config, device)
+
+    if distributed:
+        if teacher_model is not None:
+            teacher_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(teacher_model)
+        student_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(student_model)
+
     if not args.test_only:
         ckpt_file_path = student_model_config['ckpt']
         train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
@@ -255,11 +299,12 @@ def main(args):
     test_data_loader_config = test_config['test_data_loader']
     test_data_loader = util.build_data_loader(dataset_dict[test_data_loader_config['dataset_id']],
                                               test_data_loader_config, distributed)
+    num_classes = args.num_classes
     if not args.student_only and teacher_model is not None:
         evaluate(teacher_model, test_data_loader, device, device_ids, distributed, bottleneck_updated=False,
-                 title='[Teacher: {}]'.format(teacher_model_config['name']))
+                 num_classes=num_classes, title='[Teacher: {}]'.format(teacher_model_config['name']))
     evaluate(student_model, test_data_loader, device, device_ids, distributed, bottleneck_updated=False,
-             title='[Student: {}]'.format(student_model_config['name']))
+             num_classes=num_classes, title='[Student: {}]'.format(student_model_config['name']))
     analyze_bottleneck_size(student_model)
 
 
