@@ -170,12 +170,19 @@ class BottleneckResNetLayerWithIGDN(BaseCustomBottleneckModel):
             return decoded_obj
 
         # if fine-tuning after "update"
+        # if self.updated:
+        #     encoded_output = self.encoder(x)
+        #     decoder_input =\
+        #         self.entropy_bottleneck.dequantize(self.entropy_bottleneck.quantize(encoded_output, 'dequantize'))
+        #     decoder_input = decoder_input.detach()
+        #     return self.decoder(decoder_input)
         if self.updated:
-            encoded_output = self.encoder(x)
-            decoder_input =\
-                self.entropy_bottleneck.dequantize(self.entropy_bottleneck.quantize(encoded_output, 'dequantize'))
-            decoder_input = decoder_input.detach()
-            return self.decoder(decoder_input)
+            encoded_obj = self.encoder(x)
+            self.entropy_bottleneck.eval()
+            y_hat, y_likelihoods = self.entropy_bottleneck(encoded_obj)
+            y_hat = y_hat.detach()
+            decoded_obj = self.decoder(y_hat)
+            return decoded_obj
 
         encoded_obj = self.encoder(x)
         y_hat, y_likelihoods = self.entropy_bottleneck(encoded_obj)
@@ -235,12 +242,19 @@ class BottleneckResNetLayer(BaseCustomBottleneckModel):
             return decoded_obj
 
         # if fine-tuning after "update"
+        # if self.updated:
+        #     encoded_output = self.encoder(x)
+        #     decoder_input = \
+        #         self.entropy_bottleneck.dequantize(self.entropy_bottleneck.quantize(encoded_output, 'dequantize'))
+        #     decoder_input = decoder_input.detach()
+        #     return self.decoder(decoder_input)
         if self.updated:
-            encoded_output = self.encoder(x)
-            decoder_input = \
-                self.entropy_bottleneck.dequantize(self.entropy_bottleneck.quantize(encoded_output, 'dequantize'))
-            decoder_input = decoder_input.detach()
-            return self.decoder(decoder_input)
+            encoded_obj = self.encoder(x)
+            self.entropy_bottleneck.eval()
+            y_hat, y_likelihoods = self.entropy_bottleneck(encoded_obj)
+            y_hat = y_hat.detach()
+            decoded_obj = self.decoder(y_hat)
+            return decoded_obj
 
         encoded_obj = self.encoder(x)
         y_hat, y_likelihoods = self.entropy_bottleneck(encoded_obj)
