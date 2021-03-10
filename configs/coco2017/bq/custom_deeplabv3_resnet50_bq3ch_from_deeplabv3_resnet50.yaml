@@ -77,7 +77,7 @@ models:
               params:
                 num_bits: 8
     experiment: &student_experiment !join [ *dataset_name, '-', *student_model_name, '-b', *bch, 'ch_from_', *teacher_model_name ]
-    ckpt: !join [ './resource/ckpt/coco2017/bq/', *student_experiment, '.pt' ]
+    ckpt: !join ['./resource/ckpt/coco2017/bq/', *student_experiment, '.pt']
 
 test:
   test_data_loader:
