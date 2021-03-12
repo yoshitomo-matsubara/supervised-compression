@@ -61,7 +61,7 @@ def load_model(model_config, device):
             repo_or_dir = model_config.get('repo_or_dir', None)
             model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
-        model_ckpt_file_path = model_config['ckpt']
+        model_ckpt_file_path = os.path.expanduser(model_config['ckpt'])
         if load_bottleneck_model_ckpt(model, model_ckpt_file_path):
             return model.to(device)
 
@@ -74,7 +74,7 @@ def load_model(model_config, device):
         if compressor_config is not None else None
 
     if compressor is not None:
-        compressor_ckpt_file_path = compressor_config['ckpt']
+        compressor_ckpt_file_path = os.path.expanduser(compressor_config['ckpt'])
         if os.path.isfile(compressor_ckpt_file_path):
             logger.info('Loading compressor parameters')
             state_dict = torch.load(compressor_ckpt_file_path)
@@ -92,7 +92,7 @@ def load_model(model_config, device):
         repo_or_dir = detector_config.get('repo_or_dir', None)
         detector = get_model(detector_config['name'], repo_or_dir, **detector_config['params'])
 
-    detector_ckpt_file_path = detector_config['ckpt']
+    detector_ckpt_file_path = os.path.expanduser(detector_config['ckpt'])
     load_ckpt(detector_ckpt_file_path, model=detector, strict=True)
     custom_model = get_custom_model(model_config['name'], compressor, detector, **model_config['params'])
     return custom_model.to(device)
