@@ -95,10 +95,13 @@ def check_classifier_size(classifier, model_name):
                          'Encoder in {}'.format(model_name))
         check_model_size([classifier.compressor.entropy_bottleneck, classifier.compressor.gaussian_conditional],
                          'Entropy bottleneck + Gaussian conditional in {}'.format(model_name))
+        check_model_size([classifier.compressor.h_s, classifier.compressor.g_s],
+                         'Decoder in {}'.format(model_name))
     elif isinstance(classifier, InputCompressionClassifier):
         check_model_size(classifier.compressor.encoder, 'Encoder in {}'.format(model_name))
         check_model_size(classifier.compressor.entropy_bottleneck,
                          'Entropy bottleneck in {}'.format(model_name))
+        check_model_size(classifier.compressor.decoder, 'Decoder in {}'.format(model_name))
     elif isinstance(classifier, CustomResNet):
         check_model_size(classifier.bottleneck.encoder, 'Encoder in {}'.format(model_name))
     elif isinstance(classifier, BottleneckResNet):
@@ -163,11 +166,14 @@ def check_detector_size(detector, model_name):
         check_model_size([transform.compressor.entropy_bottleneck,
                           transform.compressor.gaussian_conditional],
                          'Entropy bottleneck + Gaussian conditional in {}'.format(model_name))
+        check_model_size([transform.compressor.h_s, transform.compressor.g_s],
+                         'Decoder in {}'.format(model_name))
     elif isinstance(detector, InputCompressionDetector):
         transform = detector.detector.transform
         check_model_size(transform.compressor.encoder, 'Encoder in {}'.format(model_name))
         check_model_size(transform.compressor.entropy_bottleneck,
                          'Entropy bottleneck in {}'.format(model_name))
+        check_model_size(transform.compressor.decoder, 'Decoder in {}'.format(model_name))
     elif check_if_module_exits(detector, 'backbone.body.layer1.encoder'):
         check_model_size([detector.backbone.body.conv1, detector.backbone.body.bn1,
                           detector.backbone.body.layer1.encoder], 'Encoder in {}'.format(model_name))
@@ -228,10 +234,13 @@ def check_segmenter_size(segmenter, model_name):
         check_model_size([segmenter.compressor.entropy_bottleneck,
                           segmenter.compressor.gaussian_conditional],
                          'Entropy bottleneck + Gaussian conditional in {}'.format(model_name))
+        check_model_size([segmenter.compressor.h_s, segmenter.compressor.g_s],
+                         'Decoder in {}'.format(model_name))
     elif isinstance(segmenter, InputCompressionSegmenter):
         check_model_size(segmenter.compressor.encoder, 'Encoder in {}'.format(model_name))
         check_model_size(segmenter.compressor.entropy_bottleneck,
                          'Entropy bottleneck in {}'.format(model_name))
+        check_model_size(segmenter.compressor.decoder, 'Decoder in {}'.format(model_name))
     elif check_if_module_exits(segmenter, 'backbone.layer1.encoder'):
         check_model_size([segmenter.backbone.conv1, segmenter.backbone.bn1,
                           segmenter.backbone.layer1.encoder], 'Encoder in {}'.format(model_name))

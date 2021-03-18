@@ -66,6 +66,7 @@ def customize_config(config, dataset_dict, world_size):
             stage_name = 'stage{}'.format(i)
             if stage_name not in train_config:
                 break
+
             stage_train_config = train_config[stage_name]
             if 'train_data_loader' not in stage_train_config:
                 continue
@@ -84,7 +85,7 @@ def load_model(model_config, device):
             repo_or_dir = model_config.get('repo_or_dir', None)
             model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
-        model_ckpt_file_path = model_config['ckpt']
+        model_ckpt_file_path = os.path.expanduser(model_config['ckpt'])
         if load_bottleneck_model_ckpt(model, model_ckpt_file_path):
             return model.to(device)
 
@@ -94,7 +95,7 @@ def load_model(model_config, device):
     # Define compressor
     compressor_config = model_config['compressor']
     compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
-    compressor_ckpt_file_path = compressor_config['ckpt']
+    compressor_ckpt_file_path = os.path.expanduser(compressor_config['ckpt'])
     if os.path.isfile(compressor_ckpt_file_path):
         logger.info('Loading compressor parameters')
         state_dict = torch.load(compressor_ckpt_file_path)
@@ -111,7 +112,7 @@ def load_model(model_config, device):
         repo_or_dir = segmenter_config.get('repo_or_dir', None)
         segmenter = get_model(segmenter_config['name'], repo_or_dir, **segmenter_config['params'])
 
-    segmenter_ckpt_file_path = segmenter_config['ckpt']
+    segmenter_ckpt_file_path = os.path.expanduser(segmenter_config['ckpt'])
     load_ckpt(segmenter_ckpt_file_path, model=segmenter, strict=True)
     custom_model = get_custom_model(model_config['name'], compressor, segmenter, **model_config['params'])
     return custom_model.to(device)
@@ -164,9 +165,6 @@ def evaluate(model, data_loader, device, device_ids, distributed, num_classes, b
     if title is not None:
         logger.info(title)
 
-    n_threads = torch.get_num_threads()
-    # FIXME remove this and make paste_masks_in_image run on the GPU
-    torch.set_num_threads(1)
     model.eval()
     metric_logger = MetricLogger(delimiter='  ')
     seg_evaluator = SegEvaluator(num_classes)
@@ -185,7 +183,6 @@ def evaluate(model, data_loader, device, device_ids, distributed, num_classes, b
     # gather the stats from all processes
     seg_evaluator.reduce_from_all_processes()
     logger.info(seg_evaluator)
-    torch.set_num_threads(n_threads)
     return seg_evaluator
 
 
@@ -219,7 +216,8 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
         if entropy_bottleneck_module is None or bottleneck_updated:
             val_seg_evaluator = \
                 evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                         num_classes=args.num_classes, log_freq=log_freq, header='Validation:')
+                         num_classes=args.num_classes, bottleneck_updated=bottleneck_updated,
+                         log_freq=log_freq, header='Validation:')
 
             val_acc_global, val_acc, val_iou = val_seg_evaluator.compute()
             val_miou = val_iou.mean().item()

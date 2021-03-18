@@ -17,7 +17,6 @@ from torchdistill.core.training import get_training_box
 from torchdistill.datasets import util
 from torchdistill.eval.classification import compute_accuracy
 from torchdistill.misc.log import setup_log_file, SmoothedValue, MetricLogger
-from torchdistill.models.custom.bottleneck.base import BottleneckBase
 from torchdistill.models.official import get_image_classification_model
 from torchdistill.models.registry import get_model
 
@@ -54,7 +53,7 @@ def load_model(model_config, device, distributed, sync_bn):
             repo_or_dir = model_config.get('repo_or_dir', None)
             model = get_model(model_config['name'], repo_or_dir, **model_config['params'])
 
-        model_ckpt_file_path = model_config['ckpt']
+        model_ckpt_file_path = os.path.expanduser(model_config['ckpt'])
         if not os.path.isfile(model_ckpt_file_path) and 'start_ckpt' in model_config:
             model_ckpt_file_path = model_config['start_ckpt']
 
@@ -67,7 +66,7 @@ def load_model(model_config, device, distributed, sync_bn):
     # Define compressor
     compressor_config = model_config['compressor']
     compressor = get_compression_model(compressor_config['name'], **compressor_config['params'])
-    compressor_ckpt_file_path = compressor_config['ckpt']
+    compressor_ckpt_file_path = os.path.expanduser(compressor_config['ckpt'])
     if os.path.isfile(compressor_ckpt_file_path):
         logger.info('Loading compressor parameters')
         state_dict = torch.load(compressor_ckpt_file_path)
@@ -84,7 +83,7 @@ def load_model(model_config, device, distributed, sync_bn):
         repo_or_dir = classifier_config.get('repo_or_dir', None)
         classifier = get_model(classifier_config['name'], repo_or_dir, **classifier_config['params'])
 
-    classifier_ckpt_file_path = classifier_config['ckpt']
+    classifier_ckpt_file_path = os.path.expanduser(classifier_config['ckpt'])
     load_ckpt(classifier_ckpt_file_path, model=classifier, strict=True)
     custom_model = get_custom_model(model_config['name'], compressor, classifier, **model_config['params'])
     return custom_model.to(device)
@@ -209,12 +208,10 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
 def analyze_bottleneck_size(model):
     file_size_list = list()
-    if check_if_module_exits(model, 'bottleneck.compressor') and isinstance(model.bottleneck, BottleneckBase):
+    if check_if_module_exits(model, 'bottleneck.compressor'):
         file_size_list = model.bottleneck.compressor.file_size_list
     elif isinstance(model, InputCompressionClassifier):
         file_size_list = model.file_size_list
-    elif check_if_module_exits(model, 'bottleneck.compressor'):
-        file_size_list = model.bottleneck.compressor.file_size_list
     elif check_if_module_exits(model, 'backbone.bottleneck_layer'):
         file_size_list = model.backbone.bottleneck_layer.file_size_list
 

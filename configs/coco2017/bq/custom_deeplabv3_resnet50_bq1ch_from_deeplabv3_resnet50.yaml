@@ -1,0 +1,88 @@
+datasets:
+  coco2017:
+    name: &dataset_name 'coco2017'
+    type: 'cocodetect'
+    root: &root_dir !join ['~/dataset/', *dataset_name]
+    splits:
+      train:
+        dataset_id: &coco_train !join [*dataset_name, '/train']
+        images: !join [*root_dir, '/train2017']
+        annotations: !join [*root_dir, '/annotations/instances_train2017.json']
+        annotated_only: True
+        is_segment: True
+        transforms_params:
+          - type: 'CustomRandomResize'
+            params:
+              min_size: 260
+              max_size: 1040
+          - type: 'CustomRandomHorizontalFlip'
+            params:
+              p: 0.5
+          - type: 'CustomRandomCrop'
+            params:
+              size: 480
+          - &totensor
+            type: 'CustomToTensor'
+            params:
+          - &normalize
+            type: 'CustomNormalize'
+            params:
+              mean: [0.485, 0.456, 0.406]
+              std: [0.229, 0.224, 0.225]
+      val:
+        dataset_id: &coco_val !join [*dataset_name, '/val']
+        images: !join [*root_dir, '/val2017']
+        annotations: !join [*root_dir, '/annotations/instances_val2017.json']
+        annotated_only: False
+        is_segment: True
+        transforms_params:
+          - type: 'CustomRandomResize'
+            params:
+              min_size: 520
+              max_size: 520
+          - *totensor
+          - *normalize
+
+models:
+  teacher_model:
+    name: &teacher_model_name 'deeplabv3_resnet50'
+    params:
+      pretrained: True
+      num_classes: 21
+    experiment: &teacher_experiment !join [*dataset_name, '-', *teacher_model_name]
+    ckpt: !join ['./resource/ckpt/semantic_segmentation/teacher/', *teacher_experiment, '.pt']
+  student_model:
+    name: &student_model_name 'custom_deeplabv3_resnet'
+    params:
+      pretrained: True
+      progress: True
+      num_classes: 21
+      pretrained_backbone: True
+      backbone:
+        name: 'custom_resnet50'
+        params:
+          num_classes: 1000
+          pretrained: True
+          layer1:
+            type: 'Bottleneck4LargeResNet'
+            bottleneck_channel: &bch 1
+            compressor:
+              name: 'QuantizerWrapper'
+              params:
+                num_bits: 8
+                analysis_config:
+                  mean_std_file_size: True
+            decompressor:
+              name: 'Dequantizer'
+              params:
+                num_bits: 8
+    experiment: &student_experiment !join [ *dataset_name, '-', *student_model_name, '-b', *bch, 'ch_from_', *teacher_model_name ]
+    ckpt: !join ['./resource/ckpt/coco2017/bq/', *student_experiment, '.pt']
+
+test:
+  test_data_loader:
+    dataset_id: *coco_val
+    random_sample: False
+    batch_size: 1
+    num_workers: 16
+    collate_fn: 'coco_seg_eval_collate_fn'
