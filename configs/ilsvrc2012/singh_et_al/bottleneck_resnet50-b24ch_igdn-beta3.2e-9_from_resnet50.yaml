@@ -104,7 +104,7 @@ train:
           type: 'BppLoss'
           params:
             entropy_module_path: 'backbone.bottleneck_layer.entropy_bottleneck'
-            reduction: 'mean'
+            reduction: 'sum'
         factor: 3.201e-9
 
 test:
