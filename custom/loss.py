@@ -61,5 +61,12 @@ class BppLoss(nn.Module):
     def forward(self, student_io_dict, *args, **kwargs):
         entropy_module_dict = student_io_dict[self.entropy_module_path]
         reconstructed_inputs, likelihoods = entropy_module_dict['output']
-        bpp = -likelihoods.log2().sum()
+        n, _, h, w = reconstructed_inputs.shape
+        num_pixels = n * h * w
+        if self.reduction == 'sum':
+            bpp = -likelihoods.log2().sum()
+        elif self.reduction == 'batchmean':
+            bpp = -likelihoods.log2().sum() / n
+        else:
+            bpp = -likelihoods.log2().sum() / num_pixels
         return bpp
