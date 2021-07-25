@@ -25,6 +25,21 @@ class JpegCenterCrop(CenterCrop):
 
 
 @register_transform_class
+class WebPCenterCrop(CenterCrop):
+    def __init__(self, size, webp_quality=None):
+        super().__init__(size)
+        self.webp_quality = webp_quality
+
+    def __call__(self, img):
+        img = super().forward(img)
+        if self.webp_quality is not None:
+            img_buffer = BytesIO()
+            img.save(img_buffer, 'WEBP', quality=self.webp_quality)
+            img = Image.open(img_buffer)
+        return img
+
+
+@register_transform_class
 class CustomJpegToTensor(object):
     def __init__(self, jpeg_quality=None):
         self.jpeg_quality = jpeg_quality
@@ -33,6 +48,22 @@ class CustomJpegToTensor(object):
         if self.jpeg_quality is not None:
             img_buffer = BytesIO()
             image.save(img_buffer, 'JPEG', quality=self.jpeg_quality)
+            image = Image.open(img_buffer)
+
+        image = to_tensor(image)
+        target = torch.as_tensor(np.array(target), dtype=torch.int64)
+        return image, target
+
+
+@register_transform_class
+class CustomWebPToTensor(object):
+    def __init__(self, webp_quality=None):
+        self.webp_quality = webp_quality
+
+    def __call__(self, image, target):
+        if self.webp_quality is not None:
+            img_buffer = BytesIO()
+            image.save(img_buffer, 'WEBP', quality=self.webp_quality)
             image = Image.open(img_buffer)
 
         image = to_tensor(image)

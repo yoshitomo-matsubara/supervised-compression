@@ -19,11 +19,13 @@ def register_custom_classifier_class(cls):
 
 
 class RCNNTransformWithCompression(GeneralizedRCNNTransform):
-    def __init__(self, transform, compressor=None, jpeg_quality=None, analysis_config=None, adaptive_pad_config=None):
+    def __init__(self, transform, compressor=None, jpeg_quality=None, webp_quality=None,
+                 analysis_config=None, adaptive_pad_config=None):
         super().__init__(transform.min_size, transform.max_size, transform.image_mean, transform.image_std)
         self.compressor = compressor
         self.adaptive_pad = AdaptivePad(**adaptive_pad_config) if isinstance(adaptive_pad_config, dict) else None
         self.jpeg_quality = jpeg_quality
+        self.webp_quality = webp_quality
         self.analysis_config = analysis_config
         self.file_size_list = list()
 
@@ -37,6 +39,16 @@ class RCNNTransformWithCompression(GeneralizedRCNNTransform):
         pil_img = to_pil_image(org_img, mode='RGB')
         img_buffer = BytesIO()
         pil_img.save(img_buffer, 'JPEG', quality=self.jpeg_quality)
+        if not self.training and self.analysis_config is not None:
+            self.analyze_compressed_object(img_buffer)
+
+        pil_img = Image.open(img_buffer)
+        return to_tensor(pil_img).to(org_img.device)
+
+    def webp_compress(self, org_img):
+        pil_img = to_pil_image(org_img, mode='RGB')
+        img_buffer = BytesIO()
+        pil_img.save(img_buffer, 'WEBP', quality=self.webp_quality)
         if not self.training and self.analysis_config is not None:
             self.analyze_compressed_object(img_buffer)
 
@@ -57,6 +69,8 @@ class RCNNTransformWithCompression(GeneralizedRCNNTransform):
     def compress(self, org_img):
         if self.jpeg_quality is not None:
             return self.jpeg_compress(org_img)
+        elif self.webp_quality is not None:
+            return self.webp_compress(org_img)
         return self.compress_by_model(org_img)
 
     def forward(self,
