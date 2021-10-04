@@ -45,7 +45,7 @@ class InputCompressionClassifier(BaseCustomClassifier):
 
 @register_custom_classifier_class
 class BottleneckInjectedClassifier(BaseCustomClassifier):
-    def __init__(self, classifier, analysis_config=None, *kwargs):
+    def __init__(self, classifier, analysis_config=None, **kwargs):
         super().__init__(analysis_config)
         self.classifier = classifier
 
