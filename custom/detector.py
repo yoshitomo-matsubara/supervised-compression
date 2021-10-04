@@ -8,7 +8,7 @@ from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.transforms.functional import to_pil_image, to_tensor, crop
 
-from custom.transform import AdaptivePad
+from custom.transform import AdaptivePad, BPG
 
 CUSTOM_DETECTOR_CLASS_DICT = dict()
 
@@ -19,20 +19,22 @@ def register_custom_classifier_class(cls):
 
 
 class RCNNTransformWithCompression(GeneralizedRCNNTransform):
-    def __init__(self, transform, compressor=None, jpeg_quality=None, webp_quality=None,
+    def __init__(self, transform, compressor=None, jpeg_quality=None, webp_quality=None, bpg_config=None,
                  analysis_config=None, adaptive_pad_config=None):
         super().__init__(transform.min_size, transform.max_size, transform.image_mean, transform.image_std)
         self.compressor = compressor
         self.adaptive_pad = AdaptivePad(**adaptive_pad_config) if isinstance(adaptive_pad_config, dict) else None
         self.jpeg_quality = jpeg_quality
         self.webp_quality = webp_quality
+        self.bpg_codec = BPG(**bpg_config) if isinstance(bpg_config, dict) else None
         self.analysis_config = analysis_config
         self.file_size_list = list()
 
-    def analyze_compressed_object(self, compressed_obj):
+    def analyze_compressed_object(self, compressed_obj, file_size=None):
         # Analyze tensor size / file size, etc
         if self.analysis_config.get('mean_std_file_size', False):
-            file_size = get_binary_object_size(compressed_obj)
+            if file_size is None:
+                file_size = get_binary_object_size(compressed_obj)
             self.file_size_list.append(file_size)
 
     def jpeg_compress(self, org_img):
@@ -55,6 +57,13 @@ class RCNNTransformWithCompression(GeneralizedRCNNTransform):
         pil_img = Image.open(img_buffer)
         return to_tensor(pil_img).to(org_img.device)
 
+    def bpg_compress(self, org_img):
+        pil_img = to_pil_image(org_img, mode='RGB')
+        pil_img, file_size_kbyte, enc_time, dec_time = self.bpg_codec.run(pil_img)
+        if not self.training and self.analysis_config is not None:
+            self.analyze_compressed_object(pil_img, file_size_kbyte)
+        return to_tensor(pil_img).to(org_img.device)
+
     def compress_by_model(self, org_img):
         org_img = org_img.unsqueeze(0)
         padded_img, org_height, org_width = self.adaptive_pad(org_img)
@@ -71,6 +80,8 @@ class RCNNTransformWithCompression(GeneralizedRCNNTransform):
             return self.jpeg_compress(org_img)
         elif self.webp_quality is not None:
             return self.webp_compress(org_img)
+        elif self.bpg_codec is not None:
+            return self.bpg_compress(org_img)
         return self.compress_by_model(org_img)
 
     def forward(self,
