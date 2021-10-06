@@ -1,6 +1,7 @@
 # Supervised Compression for Resource-constrained Edge Computing Systems
 
 ![Input compression vs. Feature compression](imgs/input_vs_feature_compression.png) 
+---
 ![Proposed training method](imgs/proposed_training_method.png) 
 
 ## Requirements
