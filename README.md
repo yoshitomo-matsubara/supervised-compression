@@ -35,6 +35,7 @@ pipenv install --python 3.8
 ```
 
 ## 2. Download Datasets
+
 ### 2.1 ImageNet (ILSVRC 2012): Image Classification
 As the terms of use do not allow to distribute the URLs, 
 you will have to create an account [here](http://image-net.org/download) to get the URLs, 
@@ -84,6 +85,7 @@ unzip annotations_trainval2017.zip
 ```
 
 ### 3. Input Compression (IC) Baselines
+
 #### JPEG Codec
 ```shell
 # Image classification
@@ -302,6 +304,7 @@ done
 ```
 
 ### 4. Feature Compression (FC) Baselines
+
 #### Channel Reduction and Bottleneck Quantization
 Yoshitomo Matsubara, Marco Levorato. ["Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"](https://github.com/yoshitomo-matsubara/hnd-ghnd-object-detectors)  
 
