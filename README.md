@@ -1,17 +1,44 @@
-# Supervised Compression for Resource-constrained Edge Computing Systems
+# Supervised Compression for Resource-Constrained Edge Computing Systems
+This is the official repository for our WACV 2022 paper, 
+***"Supervised Compression for Resource-Constrained Edge Computing Systems"***.
+
+In resource-constrained edge computing systems, we often have mobile devices with weak computing resource, 
+battery constraint, and limited communication capacity (e.g., low data rate). 
+One of the solutions is split computing, that literally splits a trained neural network into head and tail models 
+deployed on mobile device (weak) and edge server (stronger).
+Head model should be lightweight encoders and compress the input data (i.e., save both computational load on 
+mobile device and communication cost from mobile device to edge server), and tail models decode the compressed data 
+and complete the inference.
+Note that the training process is done offline (i.e., on single machines).
+
 
 ## Input Compression vs. Supervised Compression
-![Input compression vs. Feature compression](imgs/input_vs_feature_compression.png) 
----  
+![Input compression vs. Supervised compression](imgs/input_vs_feature_compression.png)
+
+Different from a combination of input compression and supervised model (**top**), supervised compression (**bottom**) 
+does not reconstruct the original input from the compressed representation, that usually contains information unrelated 
+to supervised downstream tasks. In split computing, we need to relax computational load on mobile device 
+(e.g., by designing a lightweight encoder), compress data to be transferred from weak mobile device to 
+stronger edge server, and save the end-to-end input-to-prediction latency while preserving the original model accuracy. 
 
 ## Proposed Supervised Compression
 ![Proposed training method](imgs/proposed_training_method.png) 
 
+We leverage a concept of neural image compression and introduced encoder and decoder to a teacher model in place of 
+all the layers before its 2nd residual block.
+
+Our supervised compression method consists of 1) learning to mimic a teacher's intermediate features and a prior for 
+entropy coding to compress data to be transferred and 2) fine-tuning the decoder and remaining layers for a target
+downstream task so that a single encoder can serve multiple downstream tasks e.g., one-time encoding on mobile device 
+while edge server can use the encoded data for multiple tasks with multiple tail models.
+In the above figure, we use an image classification with knowledge distillation as an example. The trained classifier 
+can be used as backbone for other downstream tasks such as object detection and semantic segmentation.
+
 ## Citation
-[[Preprint](https://arxiv.org/abs/2108.11898)]  
+[[Preprint](https://arxiv.org/abs/2108.11898)]
 ```bibtex
 @article{matsubara2021supervised,
-  title={Supervised Compression for Resource-constrained Edge Computing Systems},
+  title={Supervised Compression for Resource-Constrained Edge Computing Systems},
   author={Matsubara, Yoshitomo and Yang, Ruihan and Levorato, Marco and Mandt, Stephan},
   journal={arXiv preprint arXiv:2108.11898},
   year={2021}
@@ -23,7 +50,10 @@
 - pipenv
 
 ## 1. Virtual Environment Setup
-```
+It is highly recommended that you use a virtual environment (e.g., pipenv, anaconda). We use pipenv in this repository. 
+Refer to [Pipfile](https://github.com/yoshitomo-matsubara/supervised-compression/blob/main/Pipfile) for the required packages.
+
+```shell
 # For Python 3.6 users
 pipenv install --python 3.6
 
@@ -47,6 +77,7 @@ wget ${VAL_DATASET_URL} ./
 ```
 
 Untar and extract files
+
 ```shell
 mkdir ~/dataset/ilsvrc2012/{train,val} -p
 mv ILSVRC2012_img_train.tar ~/dataset/ilsvrc2012/train/
@@ -73,6 +104,7 @@ mv valprep.sh ../
 
 ### 2.2 COCO 2017: Object Detection & Semantic Segmentation
 Download and unzip the datasets
+
 ```shell
 mkdir ~/dataset/coco2017/ -p
 cd ~/dataset/coco2017/
@@ -87,6 +119,7 @@ unzip annotations_trainval2017.zip
 ### 3. Input Compression (IC) Baselines
 
 #### JPEG Codec
+
 ```shell
 # Image classification
 echo 'jpeg quality=100'
@@ -127,6 +160,7 @@ done
 ```
 
 #### WebP Codec
+
 ```shell
 # Image classification
 echo 'webp quality=100'
@@ -365,27 +399,27 @@ done
 
 ### 5. Our supervised compression
 Make sure you have downloaded and unzipped the pretrained checkpoints for this model. The checkpoint files should be 
-placed at `./resource/ckpt/ilsvrc2012/pre_ghnd-kd/` and `./resource/ckpt/coco2017/shared_encoder/` as specified in the yaml file.
+placed at `./resource/ckpt/ilsvrc2012/entropic_student/` and `./resource/ckpt/coco2017/shared_entropic_student/` as specified in the yaml file.
 
 ```shell
 # Image classification
 for beta in 0.01 0.02 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python image_classification.py -test_only --config configs/ilsvrc2012/pre_ghnd-kd/bottleneck_resnet50-b24ch_igdn-beta${beta}_from_resnet50.yaml
+  pipenv run python image_classification.py -test_only --config configs/ilsvrc2012/entropic_student/bottleneck_resnet50-b24ch_igdn-beta${beta}_from_resnet50.yaml
 done
 
 # Object detection
 for beta in 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python object_detection.py -test_only --config configs/coco2017/shared_encoder/retinanet_bottleneck_resnet50-b24ch_igdn-beta${beta}_fpn_from_retinanet_resnet50_fpn.yaml
+  pipenv run python object_detection.py -test_only --config configs/coco2017/shared_entropic_student/retinanet_bottleneck_resnet50-b24ch_igdn-beta${beta}_fpn_from_retinanet_resnet50_fpn.yaml
 done
 
 # Semantic segmentation
 for beta in 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python semantic_segmentation.py -test_only --config configs/coco2017/shared_encoder/deeplabv3_bottleneck_resnet50-b24ch_igdn-beta${beta}_from_deeplabv3_resnet50.yaml
+  pipenv run python semantic_segmentation.py -test_only --config configs/coco2017/shared_entropic_student/deeplabv3_bottleneck_resnet50-b24ch_igdn-beta${beta}_from_deeplabv3_resnet50.yaml
 done
 ```
