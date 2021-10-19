@@ -6,9 +6,9 @@ In resource-constrained edge computing systems, we often have mobile devices wit
 battery constraint, and limited communication capacity (e.g., low data rate). 
 One of the solutions is split computing, that literally splits a trained neural network into head and tail models 
 deployed on mobile device (weak) and edge server (stronger).
-A head model should be a lightweight encoder and compress the input data (i.e., save both computational load on 
-mobile device and communication cost from mobile device to edge server), and a tail model decodes the compressed data 
-and completes the inference.
+Head model should be lightweight encoders and compress the input data (i.e., save both computational load on 
+mobile device and communication cost from mobile device to edge server), and tail models decode the compressed data 
+and complete the inference.
 Note that the training process is done offline (i.e., on single machines).
 
 
