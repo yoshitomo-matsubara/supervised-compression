@@ -365,27 +365,27 @@ done
 
 ### 5. Our supervised compression
 Make sure you have downloaded and unzipped the pretrained checkpoints for this model. The checkpoint files should be 
-placed at `./resource/ckpt/ilsvrc2012/pre_ghnd-kd/` and `./resource/ckpt/coco2017/shared_encoder/` as specified in the yaml file.
+placed at `./resource/ckpt/ilsvrc2012/entropic_student/` and `./resource/ckpt/coco2017/shared_entropic_student/` as specified in the yaml file.
 
 ```shell
 # Image classification
 for beta in 0.01 0.02 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python image_classification.py -test_only --config configs/ilsvrc2012/pre_ghnd-kd/bottleneck_resnet50-b24ch_igdn-beta${beta}_from_resnet50.yaml
+  pipenv run python image_classification.py -test_only --config configs/ilsvrc2012/entropic_student/bottleneck_resnet50-b24ch_igdn-beta${beta}_from_resnet50.yaml
 done
 
 # Object detection
 for beta in 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python object_detection.py -test_only --config configs/coco2017/shared_encoder/retinanet_bottleneck_resnet50-b24ch_igdn-beta${beta}_fpn_from_retinanet_resnet50_fpn.yaml
+  pipenv run python object_detection.py -test_only --config configs/coco2017/shared_entropic_student/retinanet_bottleneck_resnet50-b24ch_igdn-beta${beta}_fpn_from_retinanet_resnet50_fpn.yaml
 done
 
 # Semantic segmentation
 for beta in 0.04 0.08 0.16 0.32 0.64 1.28 2.56 
 do
   echo 'beta=${beta}'
-  pipenv run python semantic_segmentation.py -test_only --config configs/coco2017/shared_encoder/deeplabv3_bottleneck_resnet50-b24ch_igdn-beta${beta}_from_deeplabv3_resnet50.yaml
+  pipenv run python semantic_segmentation.py -test_only --config configs/coco2017/shared_entropic_student/deeplabv3_bottleneck_resnet50-b24ch_igdn-beta${beta}_from_deeplabv3_resnet50.yaml
 done
 ```
