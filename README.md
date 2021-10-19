@@ -1,4 +1,7 @@
 # Supervised Compression for Resource-Constrained Edge Computing Systems
+This is the official repository for our WACV 2022 paper, 
+"Supervised Compression for Resource-Constrained Edge Computing Systems".
+
 In resource-constrained edge computing systems, we often have mobile devices with weak computing resource, 
 battery constraint, and limited communication capacity (e.g., low data rate). 
 One of the solutions is split computing, that literally splits a trained neural network into head and tail models 
@@ -46,7 +49,8 @@ In the above figure, we use an image classification with knowledge distillation 
 - pipenv
 
 ## 1. Virtual Environment Setup
-It is highly recommended that you use a virtual environment (e.g., pipenv, anaconda). We use pipenv in this repository.
+It is highly recommended that you use a virtual environment (e.g., pipenv, anaconda). We use pipenv in this repository. 
+Refer to [Pipfile](https://github.com/yoshitomo-matsubara/supervised-compression/blob/main/Pipfile) for the required packages.
 
 ```shell
 # For Python 3.6 users
