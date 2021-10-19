@@ -37,7 +37,7 @@ In the above figure, we use an image classification with knowledge distillation 
 [[Preprint](https://arxiv.org/abs/2108.11898)]
 ```bibtex
 @article{matsubara2021supervised,
-  title={Supervised Compression for Resource-constrained Edge Computing Systems},
+  title={Supervised Compression for Resource-Constrained Edge Computing Systems},
   author={Matsubara, Yoshitomo and Yang, Ruihan and Levorato, Marco and Mandt, Stephan},
   journal={arXiv preprint arXiv:2108.11898},
   year={2021}
