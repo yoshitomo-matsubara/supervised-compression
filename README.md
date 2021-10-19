@@ -1,6 +1,6 @@
 # Supervised Compression for Resource-Constrained Edge Computing Systems
 This is the official repository for our WACV 2022 paper, 
-"Supervised Compression for Resource-Constrained Edge Computing Systems".
+***"Supervised Compression for Resource-Constrained Edge Computing Systems"***.
 
 In resource-constrained edge computing systems, we often have mobile devices with weak computing resource, 
 battery constraint, and limited communication capacity (e.g., low data rate). 
@@ -15,9 +15,9 @@ Note that the training process is done offline (i.e., on single machines).
 ## Input Compression vs. Supervised Compression
 ![Input compression vs. Supervised compression](imgs/input_vs_feature_compression.png)
 
-Different from a combination of input compression and supervised model (top), supervised compression (bottom) does not 
-reconstruct the original input from the compressed representation, that usually contains information unrelated to 
-supervised downstream tasks. In split computing, we need to relax computational load on mobile device 
+Different from a combination of input compression and supervised model (**top**), supervised compression (**bottom**) 
+does not reconstruct the original input from the compressed representation, that usually contains information unrelated 
+to supervised downstream tasks. In split computing, we need to relax computational load on mobile device 
 (e.g., by designing a lightweight encoder), compress data to be transferred from weak mobile device to 
 stronger edge server, and save the end-to-end input-to-prediction latency while preserving the original model accuracy. 
 
@@ -31,7 +31,8 @@ Our supervised compression method consists of 1) learning to mimic a teacher's i
 entropy coding to compress data to be transferred and 2) fine-tuning the decoder and remaining layers for a target
 downstream task so that a single encoder can serve multiple downstream tasks e.g., one-time encoding on mobile device 
 while edge server can use the encoded data for multiple tasks with multiple tail models.
-In the above figure, we use an image classification with knowledge distillation as an example.
+In the above figure, we use an image classification with knowledge distillation as an example. The trained classifier 
+can be used as backbone for other downstream tasks such as object detection and semantic segmentation.
 
 ## Citation
 [[Preprint](https://arxiv.org/abs/2108.11898)]
