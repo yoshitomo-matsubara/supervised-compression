@@ -49,9 +49,9 @@ models:
           pretrained: True
           norm_layer: 'FrozenBatchNorm2d'
         update: True
-        ckpt: !join ['./resource/ckpt/ilsvrc2012/pre_ghnd-kd/ilsvrc2012-bottleneck_resnet50-b', *bch, 'ch_igdn-beta0.32_from_resnet50.pt']
+        ckpt: !join ['./resource/ckpt/ilsvrc2012/entropic_student/ilsvrc2012-bottleneck_resnet50-b', *bch, 'ch_igdn-beta0.32_from_resnet50.pt']
     experiment: &student_experiment !join [*dataset_name, '-', *student_model_name, '-b', *bch, 'ch_igdn-beta0.32_from_', *teacher_model_name]
-    ckpt: !join ['./resource/ckpt/coco2017/shared_encoder/', *student_experiment, '.pt']
+    ckpt: !join ['./resource/ckpt/coco2017/shared_entropic_student/', *student_experiment, '.pt']
 
 train:
   log_freq: 1000
