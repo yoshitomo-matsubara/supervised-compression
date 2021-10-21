@@ -49,6 +49,18 @@ can be used as backbone for other downstream tasks such as object detection and 
 - Python >= 3.6.9
 - pipenv
 
+
+## 0. Download Checkpoints
+To replicate the supervised performance reported in the paper, download the checkpoints of our trained models from 
+either [Google Drive](https://drive.google.com/file/d/1EHtxe31MyUZl_RoZrhzscOh9y4Omvsd0/view?usp=sharing) or 
+[Baidu Wangpan (PIN: lk2f)](https://pan.baidu.com/s/15KLKPznga66b6SqSiep7Qg).  
+Unzip the downloaded file at the root directory of this repository i.e.,
+
+```
+- supervised-compression/
+  - resource/
+```
+
 ## 1. Virtual Environment Setup
 It is highly recommended that you use a virtual environment (e.g., pipenv, anaconda). We use pipenv in this repository. 
 Refer to [Pipfile](https://github.com/yoshitomo-matsubara/supervised-compression/blob/main/Pipfile) for the required packages.
@@ -156,7 +168,6 @@ do
   sed -i "s/jpeg_quality: ${quality}/jpeg_quality: ${next_quality}/" configs/coco2017/input_compression/jpeg-deeplabv3_resnet50.yaml
   pipenv run python semantic_segmentation.py -test_only --config configs/coco2017/input_compression/jpeg-deeplabv3_resnet50.yaml
 done
-
 ```
 
 #### WebP Codec
@@ -338,6 +349,7 @@ done
 ```
 
 ### 4. Feature Compression (FC) Baselines
+If you want to train models yourself by the baselines, exclude `-test_only` from the following commands.
 
 #### Channel Reduction and Bottleneck Quantization
 Yoshitomo Matsubara, Marco Levorato. ["Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"](https://github.com/yoshitomo-matsubara/hnd-ghnd-object-detectors)  
@@ -399,7 +411,10 @@ done
 
 ### 5. Our supervised compression
 Make sure you have downloaded and unzipped the pretrained checkpoints for this model. The checkpoint files should be 
-placed at `./resource/ckpt/ilsvrc2012/entropic_student/` and `./resource/ckpt/coco2017/shared_entropic_student/` as specified in the yaml file.
+placed at `./resource/ckpt/ilsvrc2012/entropic_student/` and `./resource/ckpt/coco2017/shared_entropic_student/` 
+as specified in the yaml file.
+
+If you want to train models yourself by the baselines, exclude `-test_only` from the following commands.
 
 ```shell
 # Image classification
