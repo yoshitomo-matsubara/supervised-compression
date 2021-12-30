@@ -35,13 +35,15 @@ In the above figure, we use an image classification with knowledge distillation 
 can be used as backbone for other downstream tasks such as object detection and semantic segmentation.
 
 ## Citation
-[[Preprint](https://arxiv.org/abs/2108.11898)]
+[[Paper](https://openaccess.thecvf.com/content/WACV2022/html/Matsubara_Supervised_Compression_for_Resource-Constrained_Edge_Computing_Systems_WACV_2022_paper.html)] [[Preprint](https://arxiv.org/abs/2108.11898)]
 ```bibtex
-@article{matsubara2021supervised,
-  title={Supervised Compression for Resource-Constrained Edge Computing Systems},
+@inproceedings{matsubara2022supervised,
+  title={{Supervised Compression for Resource-Constrained Edge Computing Systems}},
   author={Matsubara, Yoshitomo and Yang, Ruihan and Levorato, Marco and Mandt, Stephan},
-  journal={arXiv preprint arXiv:2108.11898},
-  year={2021}
+  booktitle={Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
+  pages={2685-2695},
+  month={January},
+  year={2022}
 }
 ```
 
