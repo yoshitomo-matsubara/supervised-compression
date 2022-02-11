@@ -102,7 +102,7 @@ train:
       output: ['backbone.layer1', 'backbone.layer2', 'backbone.layer3', 'backbone.layer4']
     wrapper: 'DistributedDataParallel'
     requires_grad: True
-    frozen_modules: ['backbone.layer2', 'backbone.layer3', 'backbone.layer4']
+    frozen_modules: []
   apex:
     requires: False
     opt_level: '01'
