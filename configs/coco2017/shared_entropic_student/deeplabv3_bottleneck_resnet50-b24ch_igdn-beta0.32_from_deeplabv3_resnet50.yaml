@@ -109,7 +109,7 @@ train:
     student:
       adaptations:
       sequential: ['backbone']
-      frozen_modules: ['backbone.bottleneck_layer.encoder', 'backbone.bottleneck_layer.entropy_bottleneck', 'backbone.layer3', 'backbone.layer4']
+      frozen_modules: ['backbone.bottleneck_layer.encoder', 'backbone.bottleneck_layer.entropy_bottleneck']
       forward_hook:
         input: []
         output: ['backbone.bottleneck_layer', 'backbone.layer2', 'backbone.layer3', 'backbone.layer4']
