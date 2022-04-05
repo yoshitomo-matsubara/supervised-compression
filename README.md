@@ -11,7 +11,7 @@ mobile device and communication cost from mobile device to edge server), and tai
 and complete the inference.
 Note that the training process is done offline (i.e., on single machines).
 
-## Update: Extended version of this work
+## Update: Extended version of this WACV paper
 [Our new work](https://github.com/yoshitomo-matsubara/sc2-benchmark#citation) is built on this project, and 
 we significantly extended this work and defined supervised compression for split computing (SC2).
 We introduced new benchmark metrics and published `sc2bench`, a pip-installable Python package for SC2 problems.
