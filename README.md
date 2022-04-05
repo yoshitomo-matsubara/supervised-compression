@@ -11,6 +11,12 @@ mobile device and communication cost from mobile device to edge server), and tai
 and complete the inference.
 Note that the training process is done offline (i.e., on single machines).
 
+## Update: Extended version of this WACV paper
+[Our new work](https://github.com/yoshitomo-matsubara/sc2-benchmark#citation) is built on this project, and 
+we significantly extended this work and defined supervised compression for split computing (SC2).
+We introduced new benchmark metrics and published `sc2bench`, a pip-installable Python package for SC2 problems.
+We also conducted even larger-scale experiments. 
+The more advanced project with code and preprint are available [here](https://github.com/yoshitomo-matsubara/sc2-benchmark).  
 
 ## Input Compression vs. Supervised Compression
 ![Input compression vs. Supervised compression](imgs/input_vs_feature_compression.png)
