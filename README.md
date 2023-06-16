@@ -60,7 +60,7 @@ can be used as backbone for other downstream tasks such as object detection and 
 
 ## 0. Download Checkpoints
 To replicate the supervised performance reported in the paper, download the checkpoints of our trained models from 
-either [Google Drive](https://drive.google.com/file/d/1EHtxe31MyUZl_RoZrhzscOh9y4Omvsd0/view?usp=sharing) or 
+either [GitHub Release](https://github.com/yoshitomo-matsubara/supervised-compression/releases/tag/google_drive-to-github) or 
 [Baidu Wangpan (PIN: lk2f)](https://pan.baidu.com/s/15KLKPznga66b6SqSiep7Qg).  
 Unzip the downloaded file at the root directory of this repository i.e.,
 
